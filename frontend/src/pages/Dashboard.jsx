@@ -577,9 +577,9 @@ export default function Dashboard({ session }) {
       {/* Header Styled like the Reference Board */}
       <header className="dashboard-header">
         <div className="dashboard-header-title">
-          <div className="chunky-logo">
+          <h1 className="chunky-logo">
             MIND KA <span className="logo-highlight-orange">SWASTHYA</span> STRESS KA <span className="logo-highlight-green">END</span>
-          </div>
+          </h1>
           <div className="tagline">
             Breathe in. Speak out. Ho gaya. A brutally honest wellness companion — student friendly, voice friendly, chai friendly.
           </div>
@@ -605,7 +605,7 @@ export default function Dashboard({ session }) {
 
       {/* Onboarding View if no profile setup exists */}
       {!onboardData ? (
-        <div className="onboard-card">
+        <main className="onboard-card" role="main">
           <h2 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '1.8rem', marginBottom: '1.5rem', borderBottom: '4px solid var(--border)', paddingBottom: '0.5rem' }}>
             Alignment Questionnaire
           </h2>
@@ -674,17 +674,17 @@ export default function Dashboard({ session }) {
               {isAnalyzingJournal ? 'ACTIVATING WELLNESS MODULE...' : 'ACTIVATE WELLNESS MODULE'}
             </button>
           </form>
-        </div>
+        </main>
       ) : (
         /* The Three Columns board layout aligned with Reference Image */
-        <div className="columns-grid">
+        <main className="columns-grid" role="main">
           
           {/* Column 1: APNA HAAL (Your Profile Status) */}
-          <section className="column-container">
-            <div className="column-header column-header-orange">
+          <section className="column-container" aria-labelledby="col-aaj-ka-haal">
+            <h2 id="col-aaj-ka-haal" className="column-header column-header-orange">
               AAJ KA HAAL
               <span className="column-subheader">Your profile status</span>
-            </div>
+            </h2>
             
             <div className="column-body">
               <div className="neo-box" style={{ padding: '1rem', background: 'var(--background)', border: '2px solid var(--border)', boxShadow: 'none' }}>
@@ -700,7 +700,7 @@ export default function Dashboard({ session }) {
               {/* Aggregated Stress Analytics (Direct Problem Statement Alignment) */}
               {analytics && (
                 <div className="neo-box" style={{ border: '4px solid var(--border)', background: 'var(--accent-light)', boxShadow: 'none', padding: '1rem' }}>
-                  <h4 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.9rem', marginBottom: '0.6rem' }}>Uncovered Stress Triggers</h4>
+                  <h3 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.9rem', marginBottom: '0.6rem' }}>Uncovered Stress Triggers</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <div style={{ fontSize: '0.85rem' }}>
                       <strong>DOMINANT MOOD:</strong> <span style={{ background: 'var(--accent-pink)', border: '1px solid var(--border)', padding: '0.1rem 0.4rem', fontWeight: 'bold' }}>{analytics.dominantMood.toUpperCase()}</span>
@@ -724,7 +724,7 @@ export default function Dashboard({ session }) {
 
               {/* Historical Mood Logs */}
               <div style={{ marginTop: 'auto', borderTop: '4px solid var(--border)', paddingTop: '1rem' }}>
-                <h4 style={{ textTransform: 'uppercase', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.8rem' }}>Diagnostic History</h4>
+                <h3 style={{ textTransform: 'uppercase', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.8rem' }}>Diagnostic History</h3>
                 <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                   {journalLogs.map((log, idx) => (
                     <div key={idx} style={{ padding: '0.5rem', background: '#FFFFFF', border: '2px solid var(--border)', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -738,36 +738,36 @@ export default function Dashboard({ session }) {
           </section>
 
           {/* Column 2: DOST KI SALAH (Tailored Advice) */}
-          <section className="column-container">
-            <div className="column-header column-header-gold">
+          <section className="column-container" aria-labelledby="col-dost-ki-salah">
+            <h2 id="col-dost-ki-salah" className="column-header column-header-gold">
               DOST KI SALAH
               <span className="column-subheader">Tailored Coping Strategy</span>
-            </div>
+            </h2>
             
             <div className="column-body">
               {response ? (
                 <>
                   <div className="neo-box" style={{ border: '3px solid var(--border)', background: 'var(--surface)', boxShadow: 'none', padding: '1rem' }}>
-                    <h4 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h3 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span style={{ width: '8px', height: '8px', background: 'var(--accent)', border: '1px solid var(--border)' }}></span>
                       Actionable Coping Strategy
-                    </h4>
+                    </h3>
                     <p style={{ fontSize: '0.95rem', lineHeight: '1.5' }}>{response.coping_strategy || response.spoken_script}</p>
                   </div>
 
                   <div className="neo-box" style={{ border: '3px solid var(--border)', background: 'var(--surface)', boxShadow: 'none', padding: '1rem' }}>
-                    <h4 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h3 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span style={{ width: '8px', height: '8px', background: 'var(--accent-green)', border: '1px solid var(--border)' }}></span>
                       Mindfulness Pause
-                    </h4>
+                    </h3>
                     <p style={{ fontSize: '0.95rem', lineHeight: '1.5' }}>{response.mindfulness_exercise || 'Take 5 deep breaths in and out slowly to reset your heartbeat.'}</p>
                   </div>
 
                   {/* Interactive Checklist (Problem Statement Alignment) */}
                   <div className="neo-box" style={{ border: '3px solid var(--border)', background: '#E3F2FD', padding: '1rem', boxShadow: 'none' }}>
-                    <h4 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.6rem', color: '#0D47A1' }}>
+                    <h3 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.6rem', color: '#0D47A1' }}>
                       Daily Stress-Relief Actions
-                    </h4>
+                    </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {actions.map(act => (
                         <label key={act.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 'bold' }}>
@@ -786,7 +786,7 @@ export default function Dashboard({ session }) {
                   </div>
 
                   <div className="neo-box" style={{ border: '3px solid var(--border)', background: 'var(--background)', boxShadow: 'none', padding: '1rem', fontStyle: 'italic', marginTop: 'auto' }}>
-                    <h4 style={{ textTransform: 'uppercase', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.3rem', fontStyle: 'normal' }}>Motivational Boost</h4>
+                    <h3 style={{ textTransform: 'uppercase', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.3rem', fontStyle: 'normal' }}>Motivational Boost</h3>
                     <p style={{ fontSize: '0.95rem', fontWeight: 'bold' }}>"{response.encouragement || response.spoken_script}"</p>
                   </div>
                 </>
@@ -799,11 +799,11 @@ export default function Dashboard({ session }) {
           </section>
 
           {/* Column 3: MANN KI SHANTI (Voice Companion & Media) */}
-          <section className="column-container">
-            <div className="column-header column-header-green">
+          <section className="column-container" aria-labelledby="col-mann-ki-shanti">
+            <h2 id="col-mann-ki-shanti" className="column-header column-header-green">
               MANN KI SHANTI
               <span className="column-subheader">Companion & Calming Media</span>
-            </div>
+            </h2>
             
             <div className="column-body" style={{ gap: '1rem' }}>
               {/* Responsive SVG Avatar Box */}
@@ -899,6 +899,7 @@ export default function Dashboard({ session }) {
                   onChange={(e) => setTypedMessage(e.target.value)}
                   placeholder={isProcessingWellness ? 'Please wait...' : 'Type how you feel...'}
                   disabled={isProcessingWellness}
+                  aria-label="Text entry for wellness companion"
                   style={{
                     flex: 1,
                     border: 'none',
@@ -1039,8 +1040,16 @@ export default function Dashboard({ session }) {
             </div>
           </section>
 
-        </div>
+        </main>
       )}
+
+      {/* Brutalist accessible footer */}
+      <footer className="dashboard-footer" role="contentinfo">
+        <div className="footer-content">
+          <span className="footer-copyright">© {new Date().getFullYear()} SWASTHYA WELLNESS COMPANION.</span>
+          <span className="footer-tag">MADE WITH ❤️ FOR INDIAN COMPETITIVE EXAM STUDENTS. HIMALAYAN MIND SHANTI SECURED.</span>
+        </div>
+      </footer>
 
     </div>
   );

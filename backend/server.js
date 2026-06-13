@@ -103,7 +103,8 @@ app.post('/api/journal', async (req, res) => {
 
 // Handle upgrade from HTTP to WebSocket
 server.on('upgrade', (request, socket, head) => {
-  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+  const host = request.headers.host || 'localhost';
+  const pathname = new URL(request.url, `http://${host}`).pathname;
 
   if (pathname === '/socket') {
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -185,6 +186,11 @@ const heartbeatInterval = setInterval(() => {
     ws.ping();
   });
 }, 30000);
+
+// Unref the interval so Jest tests exit cleanly when server is not active
+if (typeof heartbeatInterval.unref === 'function') {
+  heartbeatInterval.unref();
+}
 
 wss.on('close', () => {
   clearInterval(heartbeatInterval);
