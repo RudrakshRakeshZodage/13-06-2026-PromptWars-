@@ -72,12 +72,12 @@ app.get('/api/health', (req, res) => {
 // REST API endpoint for wellness companion processing (fallback for WebSockets)
 app.post('/api/wellness', async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, profile } = req.body;
     if (!text) {
       return res.status(400).json({ error: 'Text input is required' });
     }
 
-    const response = await generateWellnessResponse(text);
+    const response = await generateWellnessResponse(text, profile);
     return res.json(response);
   } catch (error) {
     console.error('Error processing wellness request:', error);
@@ -137,7 +137,7 @@ wss.on('connection', (ws) => {
         case 'user_speech':
           console.log('Received voice transcription:', data.text);
           // 1. Process voice message using our AI service (which sanitizes input)
-          const response = await generateWellnessResponse(data.text);
+          const response = await generateWellnessResponse(data.text, data.profile);
           
           // 2. Respond in real-time with echo transcript
           ws.send(JSON.stringify({

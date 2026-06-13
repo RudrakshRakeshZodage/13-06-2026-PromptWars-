@@ -29,9 +29,11 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   
-  /* Brutalist diagonal dot mesh background pattern */
-  background-image: radial-gradient(rgba(19, 15, 64, 0.15) 1.5px, transparent 1.5px);
-  background-size: 16px 16px;
+  /* Brutalist diagonal crosshatch background pattern */
+  background-image: 
+    linear-gradient(45deg, rgba(19, 15, 64, 0.04) 1px, transparent 1px),
+    linear-gradient(-45deg, rgba(19, 15, 64, 0.04) 1px, transparent 1px);
+  background-size: 20px 20px;
 }
 
 a {
@@ -155,6 +157,8 @@ a {
 }
 
 [data-theme="dark"] body {
-  background-image: radial-gradient(rgba(245, 246, 247, 0.15) 1.5px, transparent 1.5px);
+  background-image: 
+    linear-gradient(45deg, rgba(245, 246, 247, 0.04) 1px, transparent 1px),
+    linear-gradient(-45deg, rgba(245, 246, 247, 0.04) 1px, transparent 1px);
 }
 

@@ -157,16 +157,33 @@ async function generateElevenLabsTTS(text) {
 }
 
 /**
+ /**
  * Invokes LLM or generates a structured wellness response.
  * 
  * @param {string} userMessage - User's voice transcription
+ * @param {object} profile - User profile containing name, exam, hours, struggle
  * @returns {Promise<object>} The structured wellness response matching expected schema
  */
-async function generateWellnessResponse(userMessage) {
+async function generateWellnessResponse(userMessage, profile = null) {
   const sanitizedText = sanitizeInput(userMessage);
   
   if (!sanitizedText) {
     return DEFAULT_MOCK_RESPONSE;
+  }
+
+  // Build dynamic system instruction using the user's profile context
+  let activeInstruction = SYSTEM_INSTRUCTION;
+  if (profile && profile.name) {
+    activeInstruction += `
+
+USER PROFILE CONTEXT:
+- Name: ${profile.name}
+- Target Exam: ${profile.exam}
+- Study Hours Daily: ${profile.hours}
+- Primary Struggle: ${profile.struggle}
+
+INSTRUCTIONS FOR USER:
+When formulating the spoken_script, you MUST speak directly to ${profile.name}. Refer to them by name (e.g. using 'beta', 'yaar', or directly by name like 'Hey ${profile.name}'). Acknowledge their specific exam struggle (${profile.struggle}) and study schedule (${profile.hours}) in a warm, contextual way. Maintain the empathetic Hinglish tone.`;
   }
 
   let resultJson = null;
@@ -185,7 +202,7 @@ async function generateWellnessResponse(userMessage) {
         body: JSON.stringify({
           model: "google/gemini-2.5-flash",
           messages: [
-            { role: "system", content: SYSTEM_INSTRUCTION },
+            { role: "system", content: activeInstruction },
             { role: "user", content: sanitizedText }
           ],
           response_format: { type: "json_object" }
@@ -209,7 +226,7 @@ async function generateWellnessResponse(userMessage) {
     try {
       const model = genAI.getGenerativeModel({
         model: 'gemini-1.5-flash',
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: activeInstruction,
         generationConfig: {
           responseMimeType: 'application/json',
         }
@@ -230,6 +247,14 @@ async function generateWellnessResponse(userMessage) {
       item.triggers.some(trigger => sanitizedText.toLowerCase().includes(trigger))
     );
     resultJson = matched ? { ...matched.response } : { ...DEFAULT_MOCK_RESPONSE };
+    
+    // Deep copy mock to prevent mutating static values
+    resultJson = JSON.parse(JSON.stringify(resultJson));
+
+    // Personalize fallback spoken script with name if available
+    if (profile && profile.name && resultJson.spoken_script) {
+      resultJson.spoken_script = resultJson.spoken_script.replace(/beta/gi, profile.name);
+    }
   }
 
   // 4. Generate TTS audio via ElevenLabs if key is present

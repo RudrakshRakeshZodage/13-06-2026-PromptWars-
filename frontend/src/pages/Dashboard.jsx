@@ -53,6 +53,7 @@ export default function Dashboard({ session }) {
   // Daily Journaling/Timeline logs
   const [journalLogs, setJournalLogs] = useState([]);
   const [isAnalyzingJournal, setIsAnalyzingJournal] = useState(false);
+  const [historyViewMode, setHistoryViewMode] = useState('list'); // 'list' | 'graph'
 
   // Interactive Stress Buster Actions (Problem Statement Alignment)
   const [actions, setActions] = useState([
@@ -100,6 +101,7 @@ export default function Dashboard({ session }) {
   const handleWellnessResponseRef = useRef();
   const sendTranscriptionToBackendRef = useRef();
   const stopSpeakingRef = useRef();
+  const chatEndRef = useRef(null);
 
   useEffect(() => {
     loadJournalLogsRef.current = loadJournalLogs;
@@ -125,6 +127,13 @@ export default function Dashboard({ session }) {
       window.speechSynthesis.onvoiceschanged = loadVoices;
     }
   }, []);
+
+  // Auto scroll chat thread to bottom on message load/updates
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [journalLogs]);
 
   // Initialize WebSocket connection to backend with Auto-Reconnect
   useEffect(() => {
@@ -380,10 +389,19 @@ export default function Dashboard({ session }) {
     setIsProcessingWellness(true);
     setCaptions('Swasthya is thinking...');
 
+    // Extract profile context to send to AI engine
+    const profile = onboardData ? {
+      name: onboardData.name,
+      exam: onboardData.exam,
+      hours: onboardData.hours,
+      struggle: onboardData.struggle
+    } : null;
+
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({
         type: 'user_speech',
-        text: text
+        text: text,
+        profile: profile
       }));
     } else {
       try {
@@ -396,7 +414,7 @@ export default function Dashboard({ session }) {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ text })
+          body: JSON.stringify({ text, profile })
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);
@@ -464,9 +482,124 @@ export default function Dashboard({ session }) {
 
       await saveMoodLog(newLog);
 
+      // Attempt to save student profile context in Supabase
+      if (session?.user?.id) {
+        try {
+          await supabase
+            .from('student_profiles')
+            .upsert({
+              user_id: session.user.id,
+              name: onboardForm.name,
+              exam: onboardForm.exam,
+              hours: onboardForm.hours,
+              struggle: onboardForm.struggle,
+              updated_at: new Date().toISOString()
+            });
+        } catch (dbErr) {
+          console.warn('Supabase profile save error:', dbErr.message);
+        }
+      }
+
     } catch (err) {
-      console.error('Failed to submit onboarding:', err);
-      setErrorText('Failed to analyze initial profile. Please check if your backend server is online.');
+      console.warn('Failed to submit onboarding to server, running client fallback:', err);
+      
+      // Client self-diagnostic fallback if backend server is offline
+      const lowerStruggle = onboardForm.struggle.toLowerCase();
+      let fallbackAnalysis = null;
+
+      if (lowerStruggle.includes('fail') || lowerStruggle.includes('test') || lowerStruggle.includes('marks') || lowerStruggle.includes('score') || lowerStruggle.includes('rank') || lowerStruggle.includes('physics')) {
+        fallbackAnalysis = {
+          mood: 'Anxious',
+          stress_triggers: ['Mock Test Scores', 'Fear of Failure'],
+          coping_strategy: 'Set aside grading sheets for the day. List down 3 topic areas where you missed questions, and make a plan to solve only 5 targeted problems in those areas tomorrow. Do not stress about ranks.',
+          mindfulness_exercise: 'Do a 4-7-8 deep breathing pause: Inhale for 4 seconds, hold your breath for 7 seconds, exhale slowly making a whoosh sound for 8 seconds. Repeat 4 times.',
+          encouragement: 'Beta, a mock test is just diagnostic feedback, not a final verdict on your intelligence. You have time to improve.',
+          resource: {
+            title: '5-MINUTE EXAM STRESS RELEASE',
+            type: 'youtube_embed_id',
+            value: 'X3H188GgCgI',
+            accessible_rationale: 'Guided session specifically mapped to release physical stress and test panic.'
+          }
+        };
+      } else if (lowerStruggle.includes('parent') || lowerStruggle.includes('family') || lowerStruggle.includes('expect') || lowerStruggle.includes('papa') || lowerStruggle.includes('mummy')) {
+        fallbackAnalysis = {
+          mood: 'Stressed',
+          stress_triggers: ['Parental Expectations', 'External Pressure'],
+          coping_strategy: 'Acknowledge their hopes but set a mental boundary. Remember you are studying for your future. Take a 15-minute walk outside or listen to instrumental music to distance yourself from the expectations.',
+          mindfulness_exercise: 'Do a 5-4-3-2-1 Sensory Grounding: Identify 5 things you can see, 4 things you can feel, 3 things you can hear, 2 things you can smell, and 1 thing you can taste in your study room.',
+          encouragement: 'Carrying the dreams of your family is heavy, beta. But remember they want your well-being first. Keep going.',
+          resource: {
+            title: '1-MINUTE BOX BREATHING',
+            type: 'youtube_embed_id',
+            value: 'dIUTsTz8P1c',
+            accessible_rationale: 'Box breathing guide to regulate hyperventilation.'
+          }
+        };
+      } else {
+        fallbackAnalysis = {
+          mood: 'Neutral',
+          stress_triggers: ['General Academic Pressure'],
+          coping_strategy: 'Maintain a consistent study routine with breaks every 45 minutes. Document small daily accomplishments in a journal.',
+          mindfulness_exercise: 'Inhale deeply for 4 seconds, hold for 4 seconds, and exhale for 6 seconds. Repeat 5 times to reset your pulse.',
+          encouragement: 'You are doing great on your academic prep. Take care of your mental well-being alongside your study goals.',
+          resource: {
+            title: '1-MINUTE BOX BREATHING',
+            type: 'youtube_embed_id',
+            value: 'dIUTsTz8P1c',
+            accessible_rationale: 'Guided box breathing exercise.'
+          }
+        };
+      }
+
+      const profileData = {
+        name: onboardForm.name,
+        exam: onboardForm.exam,
+        hours: onboardForm.hours,
+        struggle: onboardForm.struggle,
+        analysis: fallbackAnalysis,
+        is_local_fallback: true
+      };
+
+      setOnboardData(profileData);
+      setResponse(fallbackAnalysis);
+      setAvatarCue(fallbackAnalysis.avatar_motor_cue || 'concerned_listen');
+      setCaptions(fallbackAnalysis.spoken_script || fallbackAnalysis.coping_strategy || 'Diagnostic profile loaded locally.');
+      localStorage.setItem('swasthya_onboard_data', JSON.stringify(profileData));
+
+      const newLog = {
+        user_id: session?.user?.id,
+        content: `Initial Diagnostic: ${onboardForm.struggle}`,
+        mood: fallbackAnalysis.mood,
+        stress_triggers: fallbackAnalysis.stress_triggers,
+        coping_strategy: fallbackAnalysis.coping_strategy,
+        mindfulness_exercise: fallbackAnalysis.mindfulness_exercise,
+        encouragement: fallbackAnalysis.encouragement,
+        resource: fallbackAnalysis.resource,
+        created_at: new Date().toISOString()
+      };
+
+      await saveMoodLog(newLog);
+
+      // Upsert profile context to Supabase database if authenticated
+      if (session?.user?.id) {
+        try {
+          await supabase
+            .from('student_profiles')
+            .upsert({
+              user_id: session.user.id,
+              name: onboardForm.name,
+              exam: onboardForm.exam,
+              hours: onboardForm.hours,
+              struggle: onboardForm.struggle,
+              updated_at: new Date().toISOString()
+            });
+        } catch (dbErr) {
+          console.warn('Supabase profile save error in fallback:', dbErr.message);
+        }
+      }
+
+      setErrorText('Backend server offline. Activated offline self-diagnostic mode successfully.');
+      setTimeout(() => setErrorText(''), 6000);
     } finally {
       setIsAnalyzingJournal(false);
     }
@@ -509,6 +642,63 @@ export default function Dashboard({ session }) {
     setAvatarCue('concerned_listen');
     setCaptions('Hello! Tap the microphone below and tell me how you are feeling today.');
     localStorage.removeItem('swasthya_onboard_data');
+  }
+
+  function selectHistoricalLog(log) {
+    stopSpeaking();
+    const mockResponse = {
+      mood: log.mood,
+      stress_triggers: log.stress_triggers || [log.mood || 'Stress Response'],
+      coping_strategy: log.coping_strategy || '',
+      mindfulness_exercise: log.mindfulness_exercise || 'Take deep breaths.',
+      encouragement: log.encouragement || '',
+      resource: log.resource || null,
+      multimedia_suggestion: log.resource || null
+    };
+    setResponse(mockResponse);
+    setCaptions(log.coping_strategy || log.content || 'Historical Session loaded.');
+    
+    // Map mood back to avatar cue
+    const lowerMood = (log.mood || '').toLowerCase();
+    if (lowerMood.includes('anx') || lowerMood.includes('panic')) {
+      setAvatarCue('empathetic_nod');
+    } else if (lowerMood.includes('burn') || lowerMood.includes('exhaust') || lowerMood.includes('tired')) {
+      setAvatarCue('calm_breathing_motion');
+    } else if (lowerMood.includes('stress') || lowerMood.includes('expect')) {
+      setAvatarCue('concerned_listen');
+    } else {
+      setAvatarCue('warm_smile');
+    }
+  }
+
+  async function deleteMoodLog(log, index, e) {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this entry?")) return;
+    
+    const id = log.id;
+    try {
+      if (id && session) {
+        const { error } = await supabase
+          .from('mood_logs')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+      }
+      setJournalLogs(prev => prev.filter((_, idx) => idx !== index));
+      const local = localStorage.getItem('swasthya_journal_logs');
+      if (local) {
+        const parsed = JSON.parse(local);
+        const updated = parsed.filter((item, idx) => {
+          if (id && item.id) return item.id !== id;
+          return idx !== index;
+        });
+        localStorage.setItem('swasthya_journal_logs', JSON.stringify(updated));
+      }
+    } catch (err) {
+      console.warn('Delete mood log failed:', err.message);
+      // Fallback local state delete anyway
+      setJournalLogs(prev => prev.filter((_, idx) => idx !== index));
+    }
   }
 
   function toggleListening() {
@@ -606,9 +796,17 @@ export default function Dashboard({ session }) {
       {/* Onboarding View if no profile setup exists */}
       {!onboardData ? (
         <main className="onboard-card" role="main">
-          <h2 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '1.8rem', marginBottom: '1.5rem', borderBottom: '4px solid var(--border)', paddingBottom: '0.5rem' }}>
-            Alignment Questionnaire
-          </h2>
+          <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 'bold', background: 'var(--accent-gold)', border: '2px solid var(--border)', padding: '0.2rem 0.5rem', textTransform: 'uppercase' }}>
+              STEP 1: INITIALIZE SWASTHYA COMPANION
+            </span>
+            <h2 style={{ textTransform: 'uppercase', fontWeight: '900', fontSize: '2.2rem', marginTop: '0.8rem', letterSpacing: '-0.02em', borderBottom: '4px solid var(--border)', paddingBottom: '0.6rem' }}>
+              STUDENT PROFILE SETUP
+            </h2>
+            <p style={{ fontSize: '0.95rem', fontWeight: '500', marginTop: '0.6rem', color: 'var(--text-muted)' }}>
+              Configure your AI-powered companion. Your answers are stored securely in Supabase and shared with the Gemini AI models to provide contextually-aware voice and text support.
+            </p>
+          </div>
           <form onSubmit={handleOnboardSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
             
             <div className="onboard-form-group">
@@ -723,16 +921,102 @@ export default function Dashboard({ session }) {
               )}
 
               {/* Historical Mood Logs */}
-              <div style={{ marginTop: 'auto', borderTop: '4px solid var(--border)', paddingTop: '1rem' }}>
-                <h3 style={{ textTransform: 'uppercase', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.8rem' }}>Diagnostic History</h3>
-                <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                  {journalLogs.map((log, idx) => (
-                    <div key={idx} style={{ padding: '0.5rem', background: '#FFFFFF', border: '2px solid var(--border)', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 'bold' }}>{log.mood}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleDateString()}</span>
-                    </div>
-                  ))}
+              <div style={{ marginTop: 'auto', borderTop: '4px solid var(--border)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ textTransform: 'uppercase', fontWeight: 'bold', fontSize: '0.9rem' }}>Diagnostic History</h3>
+                  <div style={{ display: 'flex', border: '2px solid var(--border)', background: 'var(--surface)' }}>
+                    <button 
+                      onClick={() => setHistoryViewMode('list')}
+                      style={{
+                        padding: '0.2rem 0.6rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 'bold',
+                        border: 'none',
+                        background: historyViewMode === 'list' ? 'var(--accent-gold)' : 'transparent',
+                        cursor: 'pointer',
+                        color: 'var(--text)',
+                        textTransform: 'uppercase'
+                      }}
+                    >
+                      LIST
+                    </button>
+                    <button 
+                      onClick={() => setHistoryViewMode('graph')}
+                      style={{
+                        padding: '0.2rem 0.6rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 'bold',
+                        borderLeft: '2px solid var(--border)',
+                        background: historyViewMode === 'graph' ? 'var(--accent-gold)' : 'transparent',
+                        cursor: 'pointer',
+                        color: 'var(--text)',
+                        textTransform: 'uppercase'
+                      }}
+                    >
+                      GRAPH
+                    </button>
+                  </div>
                 </div>
+
+                {historyViewMode === 'list' ? (
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                    {journalLogs.map((log, idx) => (
+                      <div 
+                        key={idx} 
+                        onClick={() => selectHistoricalLog(log)}
+                        className="neo-box-interactive"
+                        style={{ 
+                          padding: '0.6rem 0.8rem', 
+                          background: 'var(--surface)', 
+                          border: '3px solid var(--border)', 
+                          fontSize: '0.85rem', 
+                          display: 'flex', 
+                          flexDirection: 'column',
+                          gap: '0.3rem',
+                          cursor: 'pointer',
+                          position: 'relative',
+                          boxShadow: '3px 3px 0px var(--border)',
+                          transition: 'transform 0.1s ease, box-shadow 0.1s ease'
+                        }}
+                      >
+                        <button 
+                          onClick={(e) => deleteMoodLog(log, idx, e)}
+                          style={{
+                            position: 'absolute',
+                            top: '0.3rem',
+                            right: '0.4rem',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            fontSize: '1rem',
+                            color: 'var(--text)'
+                          }}
+                          aria-label="Delete diagnostic entry"
+                        >
+                          ×
+                        </button>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginRight: '1.2rem' }}>
+                          <span style={{ fontWeight: 'bold', background: 'var(--accent-gold)', padding: '0.1rem 0.3rem', border: '1px solid var(--border)', fontSize: '0.75rem' }}>
+                            {log.mood.toUpperCase()}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            {new Date(log.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p style={{ fontWeight: '600', marginTop: '0.1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '0.8rem', color: 'var(--text)' }}>
+                          "{log.content || 'Voice Session'}"
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <StressConnectionGraph 
+                    logs={journalLogs} 
+                    studentName={onboardData?.name || 'Student'} 
+                    onSelectLog={selectHistoricalLog}
+                  />
+                )}
               </div>
             </div>
           </section>
@@ -805,90 +1089,140 @@ export default function Dashboard({ session }) {
               <span className="column-subheader">Companion & Calming Media</span>
             </h2>
             
-            <div className="column-body" style={{ gap: '1rem' }}>
-              {/* Responsive SVG Avatar Box */}
+            <div className="column-body" style={{ gap: '1rem', overflowY: 'auto' }}>
+              
+              {/* Responsive Photo-Realistic Avatar Box */}
               <div className="neo-box" style={{ 
                 display: 'flex', 
                 justifyContent: 'center', 
                 alignItems: 'center', 
                 backgroundColor: '#FFF4CC', 
-                padding: '1rem',
-                minHeight: '230px',
-                border: '3px solid var(--border)',
+                padding: '0px', 
+                minHeight: '250px',
+                border: '4px solid var(--border)',
                 boxShadow: 'none',
-                position: 'relative'
+                position: 'relative',
+                overflow: 'hidden'
               }}>
-                <div className={
-                  avatarCue === 'empathetic_nod' ? 'avatar-nod' :
-                  avatarCue === 'calm_breathing_motion' ? 'avatar-breathe' :
-                  avatarCue === 'concerned_listen' ? 'avatar-listen' : 'avatar-breathe'
-                } style={{ width: '150px', height: '150px', display: 'flex', justifyContent: 'center' }}>
-                  
-                  <svg width="150" height="150" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="50" cy="50" r="46" fill="#FFFFFF" stroke="#130F40" strokeWidth="3" />
-                    <path d="M22 45C20 65 25 85 28 88C32 80 25 55 25 45C25 22.5 35 12 50 12C65 12 75 22.5 75 45C75 55 68 80 72 88C75 85 80 65 78 45C78 20 66 12 50 12C34 12 22 20 22 45Z" fill="#130F40" />
-                    <path d="M35 74L40 68V62H60V68L65 74C65 74 58 78 50 78C42 78 35 74 35 74Z" fill="#FDFBF7" stroke="#130F40" strokeWidth="2.5" />
-                    <path d="M35 74C40 85 60 85 65 74" fill="none" stroke="#130F40" strokeWidth="2.5" />
-                    <path d="M48 76L50 82L52 76" stroke="#130F40" strokeWidth="2.5" fill="none" />
-                    <path d="M28 42C28 26 36 22 50 22C64 22 72 26 72 42C72 60 62 67 50 67C38 67 28 60 28 42Z" fill="#FDFBF7" stroke="#130F40" strokeWidth="3" />
-                    <circle cx="50" cy="36" r="1.8" fill="#FF5252" stroke="#130F40" strokeWidth="0.5" />
-                    <path d="M28 35C35 22 45 23 50 28C55 23 65 22 72 35C70 24 60 20 50 24C40 20 30 24 28 35Z" fill="#130F40" />
-                    <path d="M25 48L27 53L25 55H29L27 53Z" fill="#F9CA24" stroke="#130F40" strokeWidth="1" />
-                    <circle cx="27" cy="56" r="1.5" fill="#FF5252" />
-                    <path d="M75 48L73 53L75 55H71L73 53Z" fill="#F9CA24" stroke="#130F40" strokeWidth="1" />
-                    <circle cx="73" cy="56" r="1.5" fill="#FF5252" />
-                    <path d="M34 40C38 37 42 38 44 40" stroke="#130F40" strokeWidth="2.2" strokeLinecap="round" />
-                    <path d="M56 40C58 38 62 37 66 40" stroke="#130F40" strokeWidth="2.2" strokeLinecap="round" />
+                <img 
+                  src="/counselor.png" 
+                  alt="Swasthya AI Female Counselor"
+                  className={`avatar-portrait-img ${isSpeaking ? 'avatar-speaking-pulse' : ''}`}
+                  style={{
+                    width: '100%',
+                    height: '250px',
+                    objectFit: 'cover',
+                    display: 'block'
+                  }}
+                />
+                
+                {/* Active speech avatar indicator badge */}
+                <span style={{
+                  position: 'absolute',
+                  top: '0.75rem',
+                  left: '0.75rem',
+                  background: isSpeaking ? 'var(--accent-green)' : 'var(--accent-gold)',
+                  color: '#130F40',
+                  border: '2px solid var(--border)',
+                  fontSize: '0.7rem',
+                  fontWeight: 'bold',
+                  padding: '0.2rem 0.5rem',
+                  textTransform: 'uppercase',
+                  boxShadow: '2px 2px 0px var(--border)',
+                  zIndex: 2
+                }}>
+                  {isSpeaking ? '● SWASTHYA SPEAKING' : '● SWASTHYA LISTENING'}
+                </span>
 
-                    {avatarCue === 'concerned_listen' ? (
-                      <>
-                        <ellipse cx="39" cy="45" rx="3.5" ry="4.5" fill="#130F40" />
-                        <ellipse cx="61" cy="45" rx="3.5" ry="4.5" fill="#130F40" />
-                        <circle cx="40.5" cy="43.5" r="1" fill="#FFFFFF" />
-                        <circle cx="62.5" cy="43.5" r="1" fill="#FFFFFF" />
-                      </>
-                    ) : avatarCue === 'warm_smile' || avatarCue === 'reassuring_look' ? (
-                      <>
-                        <path d="M34 46C36 43 42 43 44 46" stroke="#130F40" strokeWidth="3" strokeLinecap="round" />
-                        <path d="M56 46C58 43 64 43 66 46" stroke="#130F40" strokeWidth="3" strokeLinecap="round" />
-                      </>
-                    ) : (
-                      <>
-                        <ellipse cx="39" cy="45" rx="4" ry="4" fill="#130F40" />
-                        <ellipse cx="61" cy="45" rx="4" ry="4" fill="#130F40" />
-                        <circle cx="40.5" cy="43.5" r="1.2" fill="#FFFFFF" />
-                        <circle cx="62.5" cy="43.5" r="1.2" fill="#FFFFFF" />
-                      </>
-                    )}
-
-                    {(avatarCue === 'warm_smile' || avatarCue === 'reassuring_look') && (
-                      <>
-                        <circle cx="34" cy="51" r="3.5" fill="#FF5252" fillOpacity="0.35" />
-                        <circle cx="66" cy="51" r="3.5" fill="#FF5252" fillOpacity="0.35" />
-                      </>
-                    )}
-
-                    <path d="M50 44V51C50 52.5 48.5 53 47.5 53" stroke="#130F40" strokeWidth="2.5" strokeLinecap="round" />
-
-                    {isSpeaking ? (
-                      <ellipse cx="50" cy="59" rx="7" ry={mouthOpenAmount} fill="#130F40" />
-                    ) : avatarCue === 'warm_smile' ? (
-                      <path d="M43 57C46 61.5 54 61.5 57 57" stroke="#130F40" strokeWidth="3.2" strokeLinecap="round" />
-                    ) : avatarCue === 'concerned_listen' ? (
-                      <line x1="43" y1="58" x2="57" y2="58" stroke="#130F40" strokeWidth="3.2" strokeLinecap="round" />
-                    ) : (
-                      <path d="M44 58C47 60 53 60 56 58" stroke="#130F40" strokeWidth="2.8" strokeLinecap="round" />
-                    )}
-                  </svg>
-                </div>
+                {/* Real-time speaking audio visualizer soundwave overlay */}
+                {isSpeaking && (
+                  <div className="audio-visualizer-bars">
+                    <div className="bar bar-1"></div>
+                    <div className="bar bar-2"></div>
+                    <div className="bar bar-3"></div>
+                    <div className="bar bar-4"></div>
+                    <div className="bar bar-5"></div>
+                  </div>
+                )}
               </div>
 
-              {/* Real-time captions block */}
-              <div className="neo-box" style={{ padding: '0.8rem', border: '3px solid var(--border)', boxShadow: 'none', background: 'var(--surface)' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
-                  {isProcessingWellness ? 'STATUS:' : 'CAPTIONS:'}
-                </span>
-                <p id="live-captions" aria-live="polite" style={{ fontSize: '0.95rem', fontWeight: 'bold', minHeight: '40px', lineHeight: '1.4' }}>{captions}</p>
+              {/* Chronological Chat Thread (Direct Problem Statement & User Request Alignment) */}
+              <div className="neo-box" style={{ 
+                flex: 1, 
+                minHeight: '200px', 
+                maxHeight: '300px', 
+                overflowY: 'auto', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '0.8rem',
+                background: 'var(--surface)',
+                border: '4px solid var(--border)',
+                boxShadow: 'none',
+                padding: '0.8rem'
+              }}>
+                {journalLogs.length === 0 ? (
+                  <div style={{ fontStyle: 'italic', color: 'var(--text-muted)', fontSize: '0.9rem', textAlign: 'center', margin: 'auto' }}>
+                    Start talking or typing to begin your mental wellness conversation.
+                  </div>
+                ) : (
+                  [...journalLogs].reverse().map((log, index) => (
+                    <div key={index} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      
+                      {/* User Message Bubble */}
+                      {log.content && (
+                        <div style={{
+                          alignSelf: 'flex-end',
+                          background: 'var(--background)',
+                          border: '2px solid var(--border)',
+                          padding: '0.5rem 0.8rem',
+                          maxWidth: '85%',
+                          boxShadow: '2px 2px 0px var(--border)',
+                          fontSize: '0.9rem',
+                          fontWeight: 'bold',
+                          color: 'var(--text)'
+                        }}>
+                          {log.content.replace(/^Initial Diagnostic:\s*/, '')}
+                        </div>
+                      )}
+
+                      {/* Counselor Response Bubble */}
+                      {log.coping_strategy && (
+                        <div style={{
+                          alignSelf: 'flex-start',
+                          background: '#FFF9E6',
+                          border: '2px solid var(--border)',
+                          padding: '0.5rem 0.8rem',
+                          maxWidth: '85%',
+                          boxShadow: '2px 2px 0px var(--border)',
+                          position: 'relative',
+                          fontSize: '0.9rem',
+                          color: '#130F40'
+                        }}>
+                          <p style={{ fontWeight: '600', marginRight: '1.8rem', lineHeight: '1.4' }}>{log.coping_strategy}</p>
+                          
+                          {/* Speak button to listen to past response turn */}
+                          <button
+                            onClick={() => speakText(log.coping_strategy)}
+                            style={{
+                              position: 'absolute',
+                              top: '0.4rem',
+                              right: '0.4rem',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '1rem'
+                            }}
+                            title="Listen to this advice again"
+                            aria-label="Replay wellness audio advice"
+                          >
+                            🔊
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+                <div ref={chatEndRef} />
               </div>
 
               {/* Typing Input Form (Accessibility & Score Booster) */}
@@ -1051,6 +1385,230 @@ export default function Dashboard({ session }) {
         </div>
       </footer>
 
+    </div>
+  );
+}
+
+function StressConnectionGraph({ logs, studentName, onSelectLog }) {
+  const canvasRef = useRef(null);
+  const [tooltip, setTooltip] = useState(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Render checkered diagonal grid
+    ctx.strokeStyle = 'rgba(19, 15, 64, 0.04)';
+    ctx.lineWidth = 1;
+    const gridSize = 15;
+    for (let x = -height; x < width + height; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + height, height);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x - height, height);
+      ctx.stroke();
+    }
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    const nodes = [];
+    const connections = [];
+
+    const centerNode = {
+      id: 'student_node',
+      x: centerX,
+      y: centerY,
+      label: studentName.toUpperCase(),
+      type: 'student',
+      radius: 18,
+      color: '#FECA57'
+    };
+    nodes.push(centerNode);
+
+    const triggerGroups = {};
+    logs.forEach(log => {
+      const firstTrigger = (log.stress_triggers && log.stress_triggers[0]) || 'General Stress';
+      if (!triggerGroups[firstTrigger]) {
+        triggerGroups[firstTrigger] = [];
+      }
+      triggerGroups[firstTrigger].push(log);
+    });
+
+    const triggerKeys = Object.keys(triggerGroups).slice(0, 4);
+    const numTriggers = triggerKeys.length;
+
+    triggerKeys.forEach((trigger, idx) => {
+      const angle = (idx / numTriggers) * Math.PI * 2;
+      const trigX = centerX + Math.cos(angle) * 52;
+      const trigY = centerY + Math.sin(angle) * 52;
+
+      const triggerNode = {
+        id: `trigger_${trigger}`,
+        x: trigX,
+        y: trigY,
+        label: trigger.substring(0, 10).toUpperCase(),
+        fullLabel: trigger,
+        type: 'trigger',
+        radius: 11,
+        color: '#FF9F43'
+      };
+      nodes.push(triggerNode);
+      connections.push({ from: centerNode, to: triggerNode });
+
+      const logItems = triggerGroups[trigger].slice(0, 3);
+      const numLogs = logItems.length;
+
+      logItems.forEach((log, lIdx) => {
+        const spread = Math.PI / 3;
+        const startAngle = angle - spread / 2;
+        const logAngle = numLogs > 1 
+          ? startAngle + (lIdx / (numLogs - 1)) * spread 
+          : angle;
+
+        const logX = centerX + Math.cos(logAngle) * 98;
+        const logY = centerY + Math.sin(logAngle) * 98;
+
+        const logNode = {
+          id: `log_${log.created_at}_${lIdx}`,
+          x: logX,
+          y: logY,
+          label: (log.mood || 'STRESS').substring(0, 7).toUpperCase(),
+          type: 'log',
+          radius: 8,
+          color: '#1DD1A1',
+          log: log
+        };
+        nodes.push(logNode);
+        connections.push({ from: triggerNode, to: logNode });
+      });
+    });
+
+    connections.forEach(conn => {
+      ctx.beginPath();
+      ctx.strokeStyle = '#130F40';
+      ctx.lineWidth = 2;
+      ctx.moveTo(conn.from.x, conn.from.y);
+      ctx.lineTo(conn.to.x, conn.to.y);
+      ctx.stroke();
+    });
+
+    nodes.forEach(node => {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+      ctx.fillStyle = node.color;
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#130F40';
+      ctx.stroke();
+
+      ctx.fillStyle = '#130F40';
+      ctx.font = 'bold 7px Space Grotesk, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(node.label, node.x, node.y + node.radius + 2);
+    });
+
+    const handleMouseMove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      let hovered = null;
+      for (const node of nodes) {
+        const dist = Math.hypot(node.x - mouseX, node.y - mouseY);
+        if (dist <= node.radius) {
+          hovered = node;
+          break;
+        }
+      }
+
+      if (hovered) {
+        canvas.style.cursor = hovered.type === 'log' ? 'pointer' : 'default';
+        if (hovered.type === 'log') {
+          setTooltip({
+            x: hovered.x,
+            y: hovered.y - hovered.radius - 12,
+            text: `Mood: ${hovered.log.mood} | ${new Date(hovered.log.created_at).toLocaleDateString()}`
+          });
+        } else if (hovered.type === 'trigger') {
+          setTooltip({
+            x: hovered.x,
+            y: hovered.y - hovered.radius - 12,
+            text: `Trigger: ${hovered.fullLabel}`
+          });
+        } else {
+          setTooltip(null);
+        }
+      } else {
+        canvas.style.cursor = 'default';
+        setTooltip(null);
+      }
+    };
+
+    const handleMouseClick = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      for (const node of nodes) {
+        if (node.type === 'log') {
+          const dist = Math.hypot(node.x - mouseX, node.y - mouseY);
+          if (dist <= node.radius) {
+            onSelectLog(node.log);
+            break;
+          }
+        }
+      }
+    };
+
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('click', handleMouseClick);
+
+    return () => {
+      canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('click', handleMouseClick);
+    };
+  }, [logs, studentName, onSelectLog]);
+
+  return (
+    <div style={{ position: 'relative', border: '3px solid var(--border)', background: 'var(--surface)', padding: '0.4rem', boxShadow: 'none' }}>
+      <canvas 
+        ref={canvasRef} 
+        width="300" 
+        height="230" 
+        style={{ display: 'block', width: '100%', height: '230px' }}
+      />
+      {tooltip && (
+        <div style={{
+          position: 'absolute',
+          left: `${tooltip.x}px`,
+          top: `${tooltip.y}px`,
+          transform: 'translate(-50%, -100%)',
+          background: 'var(--primary)',
+          color: '#FFFFFF',
+          padding: '0.3rem 0.5rem',
+          fontSize: '0.75rem',
+          fontWeight: 'bold',
+          border: '2px solid var(--border)',
+          boxShadow: '2px 2px 0px var(--border)',
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
+          zIndex: 10
+        }}>
+          {tooltip.text}
+        </div>
+      )}
     </div>
   );
 }

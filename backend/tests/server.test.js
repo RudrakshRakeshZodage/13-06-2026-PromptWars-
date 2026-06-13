@@ -47,7 +47,15 @@ describe('Express REST Endpoints Integration', () => {
   test('POST /api/wellness should return structured wellness payload', async () => {
     const res = await request(app)
       .post('/api/wellness')
-      .send({ text: 'I am highly stressed about JEE' })
+      .send({ 
+        text: 'I am highly stressed about JEE',
+        profile: {
+          name: 'Rudraksh',
+          exam: 'JEE',
+          hours: '6 to 10 hours',
+          struggle: 'physics test'
+        }
+      })
       .expect('Content-Type', /json/)
       .expect(200);
 
