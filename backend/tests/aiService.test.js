@@ -13,7 +13,7 @@ jest.mock('@google/generative-ai', () => {
                 multimedia_suggestion: {
                   title: '1-MINUTE BOX BREATHING',
                   type: 'youtube_embed_id',
-                  value: 'dIUTsTz8P1c',
+                  value: 'kYc-m7f2P8w',
                   accessible_rationale: 'Guided box breathing exercise to relax.'
                 }
               })
@@ -47,7 +47,7 @@ describe('AI Cognitive Wellness Service', () => {
     expect(response.multimedia_suggestion).toEqual({
       title: '1-MINUTE BOX BREATHING',
       type: 'youtube_embed_id',
-      value: 'dIUTsTz8P1c',
+      value: 'kYc-m7f2P8w',
       accessible_rationale: 'Guided box breathing exercise to relax.'
     });
   });

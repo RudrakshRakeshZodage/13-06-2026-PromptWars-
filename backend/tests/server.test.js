@@ -10,7 +10,7 @@ jest.mock('../services/aiService', () => {
       multimedia_suggestion: {
         title: '1-MINUTE BOX BREATHING',
         type: 'youtube_embed_id',
-        value: 'dIUTsTz8P1c',
+        value: 'kYc-m7f2P8w',
         accessible_rationale: 'Guided breathing session.'
       }
     }),

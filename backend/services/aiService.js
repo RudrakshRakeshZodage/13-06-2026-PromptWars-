@@ -64,7 +64,7 @@ const MOCK_WELLNESS_CATALOG = [
       multimedia_suggestion: {
         title: '1-MINUTE BOX BREATHING',
         type: 'youtube_embed_id',
-        value: 'dIUTsTz8P1c',
+        value: 'kYc-m7f2P8w',
         accessible_rationale: 'A simple breathing exercise to regulate the nervous system and calm anxiety.'
       }
     }
@@ -107,7 +107,7 @@ const DEFAULT_MOCK_RESPONSE = {
   multimedia_suggestion: {
     title: '1-MINUTE BOX BREATHING',
     type: 'youtube_embed_id',
-    value: 'dIUTsTz8P1c',
+    value: 'kYc-m7f2P8w',
     accessible_rationale: 'Guided box breathing tutorial to reduce immediate stress.'
   }
 };
@@ -297,7 +297,7 @@ const MOCK_JOURNAL_CATALOG = [
       resource: {
         title: '1-MINUTE BOX BREATHING',
         type: 'youtube_embed_id',
-        value: 'dIUTsTz8P1c',
+        value: 'kYc-m7f2P8w',
         accessible_rationale: 'Box breathing guide to regulate hyperventilation and focus visual tracks.'
       }
     }
@@ -329,7 +329,7 @@ const DEFAULT_JOURNAL_RESPONSE = {
   resource: {
     title: '1-MINUTE BOX BREATHING',
     type: 'youtube_embed_id',
-    value: 'dIUTsTz8P1c',
+    value: 'kYc-m7f2P8w',
     accessible_rationale: 'Guided box breathing exercise.'
   }
 };
