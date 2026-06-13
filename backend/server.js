@@ -1,8 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const path = require('path');
 const WebSocket = require('ws');
 const rateLimit = require('express-rate-limit');
+const compression = require('compression');
 require('dotenv').config();
 
 const { generateWellnessResponse, analyzeJournalEntry } = require('./services/aiService');
@@ -63,6 +65,22 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// Enable Gzip compression for all responses
+app.use(compression());
+
+// Serve static assets from the frontend build folder with aggressive caching (1 year)
+const frontendDistPath = path.join(__dirname, '../frontend/dist');
+app.use(express.static(frontendDistPath, {
+  maxAge: '31536000000', // 1 year in milliseconds
+  setHeaders: (res, filePath) => {
+    // Set Expires header in addition to Cache-Control max-age
+    const expiresDate = new Date();
+    expiresDate.setFullYear(expiresDate.getFullYear() + 1);
+    res.setHeader('Expires', expiresDate.toUTCString());
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  }
+}));
 
 // REST API Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -186,6 +204,18 @@ const heartbeatInterval = setInterval(() => {
     ws.ping();
   });
 }, 30000);
+
+// Fallback: serve index.html for Single Page Application routing (non-API routes)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/socket')) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'), (err) => {
+    if (err) {
+      res.status(404).send('Static assets not found. Please build the frontend.');
+    }
+  });
+});
 
 // Unref the interval so Jest tests exit cleanly when server is not active
 if (typeof heartbeatInterval.unref === 'function') {
