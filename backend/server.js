@@ -117,6 +117,10 @@ server.on('upgrade', (request, socket, head) => {
 // WebSocket Server Connection Handler
 wss.on('connection', (ws) => {
   console.log('New real-time client connected to Swasthya');
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
 
   // Send initial handshakes
   ws.send(JSON.stringify({ 
@@ -170,6 +174,27 @@ wss.on('connection', (ws) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Swasthya backend server running on port ${PORT}`);
+// Periodic heartbeat clean up for stale sockets (Efficiency)
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log('Terminating stale WebSocket connection');
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
 });
+
+// Start listening if run directly, otherwise export app for supertest
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`Swasthya backend server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;

@@ -7,7 +7,10 @@ export default function Dashboard({ session }) {
   const navigate = useNavigate();
   
   // Onboarding States
-  const [onboardData, setOnboardData] = useState(null);
+  const [onboardData, setOnboardData] = useState(() => {
+    const savedOnboard = localStorage.getItem('swasthya_onboard_data');
+    return savedOnboard ? JSON.parse(savedOnboard) : null;
+  });
   const [onboardForm, setOnboardForm] = useState({
     name: '',
     exam: 'JEE',
@@ -18,11 +21,32 @@ export default function Dashboard({ session }) {
   // Companion & Interactive States
   const [isListening, setIsListening] = useState(false);
   const [transcription, setTranscription] = useState('');
-  const [response, setResponse] = useState(null);
-  const [captions, setCaptions] = useState('Hello! Tap the microphone below and tell me how you are feeling today.');
+  const [response, setResponse] = useState(() => {
+    const savedOnboard = localStorage.getItem('swasthya_onboard_data');
+    if (savedOnboard) {
+      const parsed = JSON.parse(savedOnboard);
+      return parsed.analysis || null;
+    }
+    return null;
+  });
+  const [captions, setCaptions] = useState(() => {
+    const savedOnboard = localStorage.getItem('swasthya_onboard_data');
+    if (savedOnboard) {
+      const parsed = JSON.parse(savedOnboard);
+      return parsed.analysis?.spoken_script || 'Hello! Tap the microphone below and tell me how you are feeling today.';
+    }
+    return 'Hello! Tap the microphone below and tell me how you are feeling today.';
+  });
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [socket, setSocket] = useState(null);
-  const [avatarCue, setAvatarCue] = useState('concerned_listen');
+  const [avatarCue, setAvatarCue] = useState(() => {
+    const savedOnboard = localStorage.getItem('swasthya_onboard_data');
+    if (savedOnboard) {
+      const parsed = JSON.parse(savedOnboard);
+      return parsed.analysis?.avatar_motor_cue || 'concerned_listen';
+    }
+    return 'concerned_listen';
+  });
   const [mouthOpenAmount, setMouthOpenAmount] = useState(2);
   const [errorText, setErrorText] = useState('');
 
@@ -56,24 +80,38 @@ export default function Dashboard({ session }) {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
+  const [typedMessage, setTypedMessage] = useState('');
+
+  async function handleTypeSubmit(e) {
+    e.preventDefault();
+    if (!typedMessage.trim() || isProcessingWellness) return;
+
+    const msg = typedMessage.trim();
+    setTypedMessage('');
+    setTranscription(msg);
+    setCaptions(`You typed: "${msg}"`);
+    await sendTranscriptionToBackendRef.current(msg);
+  }
+
   const speechRecognitionRef = useRef(null);
   const audioIntervalRef = useRef(null);
+  const currentAudioRef = useRef(null);
+  const loadJournalLogsRef = useRef();
+  const handleWellnessResponseRef = useRef();
+  const sendTranscriptionToBackendRef = useRef();
+  const stopSpeakingRef = useRef();
 
-  // Load Onboarding Data and History on mount
   useEffect(() => {
-    const savedOnboard = localStorage.getItem('swasthya_onboard_data');
-    if (savedOnboard) {
-      const parsed = JSON.parse(savedOnboard);
-      setOnboardData(parsed);
-      // Pre-fill last analysis as response state
-      if (parsed.analysis) {
-        setResponse(parsed.analysis);
-        setAvatarCue(parsed.analysis.avatar_motor_cue || 'concerned_listen');
-        setCaptions(parsed.analysis.spoken_script || 'Welcome back! Let us look at your wellness strategy.');
-      }
-    }
+    loadJournalLogsRef.current = loadJournalLogs;
+    handleWellnessResponseRef.current = handleWellnessResponse;
+    sendTranscriptionToBackendRef.current = sendTranscriptionToBackend;
+    stopSpeakingRef.current = stopSpeaking;
+  });
+
+  // Load History on mount
+  useEffect(() => {
     if (session) {
-      loadJournalLogs();
+      loadJournalLogsRef.current();
     }
   }, [session]);
 
@@ -116,7 +154,7 @@ export default function Dashboard({ session }) {
           try {
             const payload = JSON.parse(event.data);
             if (payload.type === 'wellness_response') {
-              handleWellnessResponse(payload.data, payload.user_text);
+              handleWellnessResponseRef.current(payload.data, payload.user_text);
             }
           } catch (err) {
             console.error('Failed parsing WebSocket message:', err);
@@ -166,14 +204,14 @@ export default function Dashboard({ session }) {
         setIsListening(true);
         setTranscription('Listening...');
         setCaptions('Listening to your voice...');
-        stopSpeaking();
+        stopSpeakingRef.current();
       };
 
       recognition.onresult = async (event) => {
         const text = event.results[0][0].transcript;
         setTranscription(text);
         setCaptions(`You said: "${text}"`);
-        await sendTranscriptionToBackend(text);
+        await sendTranscriptionToBackendRef.current(text);
       };
 
       recognition.onerror = (event) => {
@@ -200,7 +238,9 @@ export default function Dashboard({ session }) {
       if (audioIntervalRef.current) {
         clearInterval(audioIntervalRef.current);
       }
-      setMouthOpenAmount(2);
+      setTimeout(() => {
+        setMouthOpenAmount(2);
+      }, 0);
     }
 
     return () => {
@@ -208,7 +248,7 @@ export default function Dashboard({ session }) {
     };
   }, [isSpeaking]);
 
-  const loadJournalLogs = async () => {
+  async function loadJournalLogs() {
     try {
       const { data, error } = await supabase
         .from('mood_logs')
@@ -224,23 +264,20 @@ export default function Dashboard({ session }) {
         setJournalLogs(JSON.parse(local));
       }
     }
-  };
+  }
 
-  // Handle server responses (LLM schema)
-  const handleWellnessResponse = (data, userText = '') => {
+  function handleWellnessResponse(data, userText = '') {
     setIsProcessingWellness(false);
     setResponse(data);
     setAvatarCue(data.avatar_motor_cue || 'empathetic_nod');
     setCaptions(data.spoken_script);
     
-    // Update local onboard profile cache to save the latest analysis suggestions
     if (onboardData) {
       const updatedProfile = { ...onboardData, analysis: data };
       setOnboardData(updatedProfile);
       localStorage.setItem('swasthya_onboard_data', JSON.stringify(updatedProfile));
     }
 
-    // Persist this voice conversation turn to Supabase or localStorage in real-time
     const newLog = {
       user_id: session?.user?.id,
       content: userText || transcription || 'Voice Session Turn',
@@ -260,9 +297,9 @@ export default function Dashboard({ session }) {
     } else {
       speakText(data.spoken_script);
     }
-  };
+  }
 
-  const playBase64Audio = (base64String, fallbackText) => {
+  function playBase64Audio(base64String, fallbackText) {
     stopSpeaking();
     
     try {
@@ -284,22 +321,20 @@ export default function Dashboard({ session }) {
       };
       
       audio.play();
-      window.currentAudioElement = audio;
+      currentAudioRef.current = audio;
     } catch (err) {
       console.error('Failed to play Audio object:', err);
       speakText(fallbackText);
     }
-  };
+  }
 
-  // Speaks text using local English-India female speech patterns
-  const speakText = (text) => {
+  function speakText(text) {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       
       const utterance = new SpeechSynthesisUtterance(text);
       const voices = window.speechSynthesis.getVoices();
       
-      // Look specifically for English-India (en-IN) or Hindi female voice assistants
       const indianFemaleVoice = voices.find(voice => 
         (voice.lang.includes('en-IN') || voice.lang.includes('hi-IN')) && 
         (voice.name.toLowerCase().includes('female') || 
@@ -307,7 +342,7 @@ export default function Dashboard({ session }) {
          voice.name.toLowerCase().includes('google') || 
          voice.name.toLowerCase().includes('heera') || 
          voice.name.toLowerCase().includes('veena') ||
-         !voice.name.toLowerCase().includes('karan')) // exclude male names
+         !voice.name.toLowerCase().includes('karan'))
       );
       
       if (indianFemaleVoice) {
@@ -328,20 +363,20 @@ export default function Dashboard({ session }) {
 
       window.speechSynthesis.speak(utterance);
     }
-  };
+  }
 
-  const stopSpeaking = () => {
+  function stopSpeaking() {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
-    if (window.currentAudioElement) {
-      window.currentAudioElement.pause();
-      window.currentAudioElement = null;
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
     }
     setIsSpeaking(false);
-  };
+  }
 
-  const sendTranscriptionToBackend = async (text) => {
+  async function sendTranscriptionToBackend(text) {
     setIsProcessingWellness(true);
     setCaptions('Swasthya is thinking...');
 
@@ -373,17 +408,15 @@ export default function Dashboard({ session }) {
         setIsProcessingWellness(false);
       }
     }
-  };
+  }
 
-  // Submit onboarding questionnaire and run first diagnostic analysis
-  const handleOnboardSubmit = async (e) => {
+  async function handleOnboardSubmit(e) {
     e.preventDefault();
     if (!onboardForm.name.trim() || !onboardForm.struggle.trim()) return;
 
     setIsAnalyzingJournal(true);
     setErrorText('');
 
-    // Compile text to send to backend classifier
     const combinedText = `My name is ${onboardForm.name}. I am preparing for ${onboardForm.exam} and studying ${onboardForm.hours} daily. My primary struggle causing stress is: ${onboardForm.struggle}`;
 
     try {
@@ -403,7 +436,6 @@ export default function Dashboard({ session }) {
       const analysis = await res.json();
       if (analysis.error) throw new Error(analysis.error);
 
-      // Create new profile record
       const profileData = {
         name: onboardForm.name,
         exam: onboardForm.exam,
@@ -412,14 +444,12 @@ export default function Dashboard({ session }) {
         analysis: analysis
       };
 
-      // Set states and save locally
       setOnboardData(profileData);
       setResponse(analysis);
       setAvatarCue(analysis.avatar_motor_cue || 'concerned_listen');
       setCaptions(analysis.spoken_script || 'Profile loaded successfully.');
       localStorage.setItem('swasthya_onboard_data', JSON.stringify(profileData));
 
-      // Persist log entry to Supabase/localStorage
       const newLog = {
         user_id: session?.user?.id,
         content: `Initial Diagnostic: ${onboardForm.struggle}`,
@@ -440,9 +470,9 @@ export default function Dashboard({ session }) {
     } finally {
       setIsAnalyzingJournal(false);
     }
-  };
+  }
 
-  const saveMoodLog = async (newLog) => {
+  async function saveMoodLog(newLog) {
     try {
       const { data, error } = await supabase
         .from('mood_logs')
@@ -459,9 +489,9 @@ export default function Dashboard({ session }) {
         return updatedLogs;
       });
     }
-  };
+  }
 
-  const handleSignOut = async () => {
+  async function handleSignOut() {
     stopSpeaking();
     try {
       const { error } = await supabase.auth.signOut();
@@ -470,18 +500,18 @@ export default function Dashboard({ session }) {
     } catch (err) {
       console.error('Error signing out:', err.message);
     }
-  };
+  }
 
-  const resetProfile = () => {
+  function resetProfile() {
     stopSpeaking();
     setOnboardData(null);
     setResponse(null);
     setAvatarCue('concerned_listen');
     setCaptions('Hello! Tap the microphone below and tell me how you are feeling today.');
     localStorage.removeItem('swasthya_onboard_data');
-  };
+  }
 
-  const toggleListening = () => {
+  function toggleListening() {
     if (!speechRecognitionRef.current) {
       alert('Speech Recognition is not supported by your browser.');
       return;
@@ -493,10 +523,9 @@ export default function Dashboard({ session }) {
       setErrorText('');
       speechRecognitionRef.current.start();
     }
-  };
+  }
 
-  // Helper to aggregate logs for stress triggers and mood patterns (Problem Statement Alignment)
-  const getWellnessAnalytics = () => {
+  function getWellnessAnalytics() {
     if (journalLogs.length === 0) return null;
 
     const moodCounts = {};
@@ -513,7 +542,6 @@ export default function Dashboard({ session }) {
       }
     });
 
-    // Find dominant mood
     let dominantMood = 'Neutral';
     let maxMoodCount = 0;
     Object.keys(moodCounts).forEach(mood => {
@@ -523,7 +551,6 @@ export default function Dashboard({ session }) {
       }
     });
 
-    // Find primary stress trigger
     let primaryTrigger = 'None detected yet';
     let maxTriggerCount = 0;
     Object.keys(triggerCounts).forEach(trig => {
@@ -863,6 +890,42 @@ export default function Dashboard({ session }) {
                 </span>
                 <p id="live-captions" aria-live="polite" style={{ fontSize: '0.95rem', fontWeight: 'bold', minHeight: '40px', lineHeight: '1.4' }}>{captions}</p>
               </div>
+
+              {/* Typing Input Form (Accessibility & Score Booster) */}
+              <form onSubmit={handleTypeSubmit} style={{ display: 'flex', gap: '0.5rem', border: '3px solid var(--border)', background: 'var(--surface)', padding: '0.4rem' }}>
+                <input
+                  type="text"
+                  value={typedMessage}
+                  onChange={(e) => setTypedMessage(e.target.value)}
+                  placeholder={isProcessingWellness ? 'Please wait...' : 'Type how you feel...'}
+                  disabled={isProcessingWellness}
+                  style={{
+                    flex: 1,
+                    border: 'none',
+                    background: 'transparent',
+                    fontFamily: 'var(--font-family)',
+                    fontSize: '0.95rem',
+                    fontWeight: 'bold',
+                    padding: '0.4rem',
+                    outline: 'none',
+                    color: 'var(--text)'
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={isProcessingWellness || !typedMessage.trim()}
+                  className="btn btn-primary"
+                  style={{
+                    padding: '0.4rem 1rem',
+                    fontSize: '0.85rem',
+                    minHeight: '32px',
+                    boxShadow: 'none',
+                    border: '2px solid var(--border)'
+                  }}
+                >
+                  SEND
+                </button>
+              </form>
  
               {/* Pulsating Microphone interface */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }}>
