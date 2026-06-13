@@ -1,12 +1,14 @@
 :root {
   --primary: #130F40;
-  --background: #FDFBF7;
-  --surface: #FFFFFF;
+  --background: #F4F0E6; /* Warm Paper tone */
+  --surface: #FDFBF7;
   --text: #130F40;
   --text-muted: #535260;
   --border: #130F40;
-  --accent: #F9CA24; /* Turmeric Yellow */
-  --accent-light: #FFF4CC;
+  --accent: #FF9F43; /* Warm Orange */
+  --accent-gold: #FECA57; /* Gold */
+  --accent-green: #1DD1A1; /* Mint Green */
+  --accent-pink: #FF6B6B;
   --error: #FF5252;
   --success: #1DD1A1;
   --shadow: 8px 8px 0px #130F40;
@@ -26,6 +28,10 @@ body {
   color: var(--text);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  
+  /* Brutalist diagonal dot mesh background pattern */
+  background-image: radial-gradient(rgba(19, 15, 64, 0.15) 1.5px, transparent 1.5px);
+  background-size: 16px 16px;
 }
 
 a {
@@ -66,14 +72,15 @@ a {
   background-color: var(--surface);
   color: var(--text);
   box-shadow: 4px 4px 0px var(--border);
+  text-transform: uppercase;
 }
 
 .btn-primary {
-  background-color: var(--accent); /* Turmeric accent */
+  background-color: var(--accent-gold);
 }
 
 .btn-primary:hover {
-  background-color: #f7b731;
+  background-color: #fca503;
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0px var(--border);
 }
@@ -83,7 +90,7 @@ a {
 }
 
 .btn-secondary:hover {
-  background-color: var(--accent-light);
+  background-color: #E8E2D2;
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0px var(--border);
 }

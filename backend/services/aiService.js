@@ -3,17 +3,11 @@ const { sanitizeInput } = require('../utils/sanitizer');
 
 // Setup Google Gen AI if key is present
 const geminiApiKey = process.env.GEMINI_API_KEY;
-let aiModel = null;
+let genAI = null;
 
 if (geminiApiKey) {
   try {
-    const ai = new GoogleGenerativeAI(geminiApiKey);
-    aiModel = ai.getGenerativeModel({
-      model: 'gemini-1.5-flash',
-      generationConfig: {
-        responseMimeType: 'application/json',
-      }
-    });
+    genAI = new GoogleGenerativeAI(geminiApiKey);
   } catch (error) {
     console.error('Failed to initialize Google Gen AI:', error.message);
   }
@@ -128,7 +122,7 @@ async function generateElevenLabsTTS(text) {
   if (!apiKey) return null;
 
   try {
-    const voiceId = "21m00Tcm4TlvDq8ikWAM"; // Rachel voice
+    const voiceId = "pMs2tJ1xkHqT05M09A9g"; // Aditi Indian Female voice
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
     
     const response = await fetch(url, {
@@ -140,7 +134,7 @@ async function generateElevenLabsTTS(text) {
       },
       body: JSON.stringify({
         text: text,
-        model_id: 'eleven_monolingual_v1',
+        model_id: 'eleven_multilingual_v2',
         voice_settings: {
           stability: 0.5,
           similarity_boost: 0.75
@@ -211,13 +205,17 @@ async function generateWellnessResponse(userMessage) {
   }
 
   // 2. If OpenRouter failed or not configured, fall back to native Gemini
-  if (!resultJson && aiModel) {
+  if (!resultJson && genAI) {
     try {
-      const prompt = `User's voice transcription: "${sanitizedText}"\n\nRespond as Swasthya according to system instructions.`;
-      const result = await aiModel.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        systemInstruction: SYSTEM_INSTRUCTION
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+        systemInstruction: SYSTEM_INSTRUCTION,
+        generationConfig: {
+          responseMimeType: 'application/json',
+        }
       });
+      const prompt = `User's voice transcription: "${sanitizedText}"`;
+      const result = await model.generateContent(prompt);
 
       const responseText = result.response.text();
       resultJson = JSON.parse(responseText);
@@ -252,7 +250,15 @@ const MOCK_JOURNAL_CATALOG = [
     response: {
       mood: 'Anxious',
       stress_triggers: ['Mock Test Scores', 'Fear of Failure'],
-      encouragement: 'Beta, mock tests are diagnostics, not final verdicts. Keep your head high and focus on analyzing your errors.'
+      coping_strategy: 'Set aside grading sheets for the day. List down 3 topic areas where you missed questions, and make a plan to solve only 5 targeted problems in those areas tomorrow. Do not stress about ranks.',
+      mindfulness_exercise: 'Do a 4-7-8 deep breathing pause: Inhale for 4 seconds, hold your breath for 7 seconds, exhale slowly making a whoosh sound for 8 seconds. Repeat 4 times.',
+      encouragement: 'Beta, a mock test is just diagnostic feedback, not a final verdict on your intelligence. You have time to improve.',
+      resource: {
+        title: '5-MINUTE EXAM STRESS RELEASE',
+        type: 'youtube_embed_id',
+        value: 'X3H188GgCgI',
+        accessible_rationale: 'Guided session specifically mapped to release physical stress and test panic.'
+      }
     }
   },
   {
@@ -260,7 +266,15 @@ const MOCK_JOURNAL_CATALOG = [
     response: {
       mood: 'Stressed',
       stress_triggers: ['Parental Expectations', 'External Pressure'],
-      encouragement: 'It is tough carrying their hopes, but they want you to be safe and happy. Try sharing how you feel, or take a short pause.'
+      coping_strategy: 'Acknowledge their hopes but set a mental boundary. Remember you are studying for your future. Take a 15-minute walk outside or listen to instrumental music to distance yourself from the expectations.',
+      mindfulness_exercise: 'Do a 5-4-3-2-1 Sensory Grounding: Identify 5 things you can see, 4 things you can feel, 3 things you can hear, 2 things you can smell, and 1 thing you can taste in your study room.',
+      encouragement: 'Carrying the dreams of your family is tough, yaar. But remember they want your well-being first. Keep going.',
+      resource: {
+        title: '1-MINUTE BOX BREATHING',
+        type: 'youtube_embed_id',
+        value: 'dIUTsTz8P1c',
+        accessible_rationale: 'Box breathing guide to regulate hyperventilation and focus visual tracks.'
+      }
     }
   },
   {
@@ -268,7 +282,15 @@ const MOCK_JOURNAL_CATALOG = [
     response: {
       mood: 'Burnt Out',
       stress_triggers: ['Study Overload', 'Physical Fatigue'],
-      encouragement: 'Studying continuously causes cognitive strain. Rest is an active component of your study schedule. Take a nap.'
+      coping_strategy: 'Implement a strict Pomodoro limit: 25 minutes of focused study followed by 5 minutes of moving away from your desk. Stop studying after 9:00 PM today and prioritize getting 7.5 hours of sleep.',
+      mindfulness_exercise: 'Do a Progressive Muscle Relaxation: Tense your shoulder muscles for 5 seconds, then release them completely. Feel the tension melt away. Repeat for your neck, arms, and legs.',
+      encouragement: 'Studying continuously without rest causes cognitive overload, Beta. Sleep is as important as active reading. Take a nap.',
+      resource: {
+        title: 'SERENE VALLEY VISUALIZATION',
+        type: 'calming_image_query',
+        value: 'himalayan valley morning mist serene',
+        accessible_rationale: 'High-contrast calm nature image of a Himalayan valley to relax visual strain.'
+      }
     }
   }
 ];
@@ -276,7 +298,15 @@ const MOCK_JOURNAL_CATALOG = [
 const DEFAULT_JOURNAL_RESPONSE = {
   mood: 'Neutral',
   stress_triggers: ['General Academic Pressure'],
-  encouragement: 'You are doing great on your prep. Make sure to keep taking care of your wellness.'
+  coping_strategy: 'Maintain a consistent study routine with breaks every 45 minutes. Document small daily accomplishments in a journal.',
+  mindfulness_exercise: 'Inhale deeply for 4 seconds, hold for 4 seconds, and exhale for 6 seconds. Repeat 5 times to reset your pulse.',
+  encouragement: 'You are doing great on your academic prep. Take care of your mental well-being alongside your study goals.',
+  resource: {
+    title: '1-MINUTE BOX BREATHING',
+    type: 'youtube_embed_id',
+    value: 'dIUTsTz8P1c',
+    accessible_rationale: 'Guided box breathing exercise.'
+  }
 };
 
 /**
@@ -297,13 +327,24 @@ async function analyzeJournalEntry(entryText) {
   Identify:
   1. The dominant mood (e.g. 'Anxious', 'Burnt Out', 'Hopeful', 'Stressed').
   2. A list of specific academic stress triggers (e.g. ['Mock Test Scores', 'Parental Expectations', 'Time Management']).
-  3. A short, highly empathetic, personalized coping encouragement.
+  3. A tailored step-by-step Coping Strategy.
+  4. An adaptive Mindfulness Exercise.
+  5. A warm, empathetic, personalized coping Encouragement.
+  6. A suggested calming Grounding Resource (matching the structure below).
   
   Output STRICTLY as a JSON object matching this schema:
   {
     "mood": "mood name",
     "stress_triggers": ["trigger 1", "trigger 2"],
-    "encouragement": "Empathetic advice text (under 2 sentences)."
+    "coping_strategy": "Tailored step-by-step strategy details",
+    "mindfulness_exercise": "Mindfulness exercise details",
+    "encouragement": "Warm motivational words under 2 sentences",
+    "resource": {
+      "title": "Bold UI label (e.g., '1-MINUTE BOX BREATHING')",
+      "type": "youtube_embed_id" | "calming_image_query" | "grounding_gif_url",
+      "value": "youtube video ID 'dIUTsTz8P1c' or image query string or GIF URL",
+      "accessible_rationale": "Short explanation for screen readers on how this helps"
+    }
   }
   `;
 
@@ -334,11 +375,15 @@ async function analyzeJournalEntry(entryText) {
   }
 
   // 2. Try Gemini SDK
-  if (aiModel) {
+  if (genAI) {
     try {
-      const result = await aiModel.generateContent({
-        contents: [{ role: 'user', parts: [{ text: journalPrompt }] }]
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+        generationConfig: {
+          responseMimeType: 'application/json',
+        }
       });
+      const result = await model.generateContent(journalPrompt);
       return JSON.parse(result.response.text());
     } catch (err) {
       console.error('Gemini SDK journal analysis failed, fallback to catalog:', err.message);

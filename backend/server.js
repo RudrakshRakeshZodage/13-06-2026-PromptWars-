@@ -10,6 +10,15 @@ const { generateWellnessResponse, analyzeJournalEntry } = require('./services/ai
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Security HTTP Headers Middleware
+app.use((req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' wss: ws: https:; frame-src https://www.youtube.com; img-src 'self' data: https://images.unsplash.com https://media.giphy.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';");
+  next();
+});
+
 // Create HTTP server to share with WebSocket
 const server = http.createServer(app);
 
@@ -28,7 +37,31 @@ const apiLimiter = rateLimit({
 // Apply rate limiting to all api endpoints
 app.use('/api/', apiLimiter);
 
-app.use(cors());
+const allowedOrigins = [
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+  'https://swasthya.vercel.app',
+  /\.vercel\.app$/
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return allowed === origin;
+    });
+    if (isAllowed) {
+      return callback(null, true);
+    } else {
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json());
 
 // REST API Health check endpoint
@@ -101,10 +134,11 @@ wss.on('connection', (ws) => {
           // 1. Process voice message using our AI service (which sanitizes input)
           const response = await generateWellnessResponse(data.text);
           
-          // 2. Respond in real-time
+          // 2. Respond in real-time with echo transcript
           ws.send(JSON.stringify({
             type: 'wellness_response',
-            data: response
+            data: response,
+            user_text: data.text
           }));
           break;
 

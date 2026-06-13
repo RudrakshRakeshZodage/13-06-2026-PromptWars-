@@ -1,14 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
+import './Dashboard.css';
 
 export default function Dashboard({ session }) {
   const navigate = useNavigate();
   
-  // State for application tabs
-  const [activeTab, setActiveTab] = useState('companion'); // 'companion' or 'journal'
-  
-  // Companion Tab States
+  // Onboarding States
+  const [onboardData, setOnboardData] = useState(null);
+  const [onboardForm, setOnboardForm] = useState({
+    name: '',
+    exam: 'JEE',
+    hours: '6 to 10 hours',
+    struggle: ''
+  });
+
+  // Companion & Interactive States
   const [isListening, setIsListening] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [response, setResponse] = useState(null);
@@ -19,62 +26,121 @@ export default function Dashboard({ session }) {
   const [mouthOpenAmount, setMouthOpenAmount] = useState(2);
   const [errorText, setErrorText] = useState('');
 
-  // Journaling Tab States
-  const [journalText, setJournalText] = useState('');
+  // Daily Journaling/Timeline logs
   const [journalLogs, setJournalLogs] = useState([]);
   const [isAnalyzingJournal, setIsAnalyzingJournal] = useState(false);
-  const [journalAnalysisResult, setJournalAnalysisResult] = useState(null);
+
+  // Interactive Stress Buster Actions (Problem Statement Alignment)
+  const [actions, setActions] = useState([
+    { id: 1, text: 'Take a 10-minute Chai Break ☕', done: false },
+    { id: 2, text: 'Do 1-minute deep breathing with Swasthya 💨', done: false },
+    { id: 3, text: 'Drink a glass of water right now 💧', done: false },
+    { id: 4, text: 'Stretch your shoulders & neck 🧘‍♀️', done: false },
+    { id: 5, text: 'Walk away from mock test papers 🚶‍♂️', done: false }
+  ]);
+
+  const toggleAction = (id) => {
+    setActions(prev => prev.map(act => act.id === id ? { ...act, done: !act.done } : act));
+  };
 
   const speechRecognitionRef = useRef(null);
   const audioIntervalRef = useRef(null);
 
-  // Initialize WebSocket connection to backend
+  // Load Onboarding Data and History on mount
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'localhost:5000';
-    const wsUrl = `${protocol}//${backendUrl.replace(/^https?:\/\//, '')}/socket`;
-    
-    console.log('Connecting to WebSocket:', wsUrl);
-    
-    let ws;
-    try {
-      ws = new WebSocket(wsUrl);
-      
-      ws.onopen = () => {
-        console.log('WebSocket connection opened');
-        setErrorText('');
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.type === 'wellness_response') {
-            handleWellnessResponse(payload.data);
-          }
-        } catch (err) {
-          console.error('Failed parsing WebSocket message:', err);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket closed');
-      };
-
-      setSocket(ws);
-    } catch (err) {
-      console.error('WebSocket init failed:', err);
+    const savedOnboard = localStorage.getItem('swasthya_onboard_data');
+    if (savedOnboard) {
+      const parsed = JSON.parse(savedOnboard);
+      setOnboardData(parsed);
+      // Pre-fill last analysis as response state
+      if (parsed.analysis) {
+        setResponse(parsed.analysis);
+        setAvatarCue(parsed.analysis.avatar_motor_cue || 'concerned_listen');
+        setCaptions(parsed.analysis.spoken_script || 'Welcome back! Let us look at your wellness strategy.');
+      }
     }
+    if (session) {
+      loadJournalLogs();
+    }
+  }, [session]);
+
+  // Pre-load voices for local SpeechSynthesis fallback
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      const loadVoices = () => {
+        window.speechSynthesis.getVoices();
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
+  // Initialize WebSocket connection to backend with Auto-Reconnect
+  useEffect(() => {
+    let ws;
+    let reconnectTimeout;
+    
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      let backendUrl = import.meta.env.VITE_BACKEND_URL || 'localhost:5000';
+      
+      if (window.location.hostname !== 'localhost' && (backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1'))) {
+        backendUrl = 'my-backend-api-8kd9.onrender.com';
+      }
+      
+      const wsUrl = `${protocol}//${backendUrl.replace(/^https?:\/\//, '')}/socket`;
+      console.log('Connecting to WebSocket:', wsUrl);
+      
+      try {
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = () => {
+          console.log('WebSocket connection opened');
+          setErrorText('');
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.type === 'wellness_response') {
+              handleWellnessResponse(payload.data, payload.user_text);
+            }
+          } catch (err) {
+            console.error('Failed parsing WebSocket message:', err);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+          console.log('WebSocket closed, scheduling reconnect in 3s');
+          reconnectTimeout = setTimeout(() => {
+            connect();
+          }, 3000);
+        };
+
+        setSocket(ws);
+      } catch (err) {
+        console.error('WebSocket init failed:', err);
+      }
+    };
+
+    connect();
 
     return () => {
-      if (ws) ws.close();
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
     };
   }, []);
 
-  // Set up Speech Recognition for voice dictation
+  // Set up Speech Recognition for companion voice
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -85,30 +151,21 @@ export default function Dashboard({ session }) {
 
       recognition.onstart = () => {
         setIsListening(true);
-        if (activeTab === 'companion') {
-          setTranscription('Listening...');
-          setCaptions('Listening to your voice...');
-          stopSpeaking();
-        }
+        setTranscription('Listening...');
+        setCaptions('Listening to your voice...');
+        stopSpeaking();
       };
 
       recognition.onresult = async (event) => {
         const text = event.results[0][0].transcript;
-        if (activeTab === 'companion') {
-          setTranscription(text);
-          setCaptions(`You said: "${text}"`);
-          await sendTranscriptionToBackend(text);
-        } else {
-          // If in journaling tab, append transcription to the text field
-          setJournalText(prev => prev ? `${prev} ${text}` : text);
-        }
+        setTranscription(text);
+        setCaptions(`You said: "${text}"`);
+        await sendTranscriptionToBackend(text);
       };
 
       recognition.onerror = (event) => {
         console.error('Speech recognition error:', event.error);
-        if (activeTab === 'companion') {
-          setCaptions('Sorry, I couldn\'t catch that. Please try tapping the mic and speaking again.');
-        }
+        setCaptions('Sorry, I couldn\'t catch that. Please try tapping the mic and speaking again.');
         setIsListening(false);
       };
 
@@ -118,9 +175,9 @@ export default function Dashboard({ session }) {
 
       speechRecognitionRef.current = recognition;
     }
-  }, [socket, activeTab]);
+  }, [socket]);
 
-  // Sync lip movement with speech
+  // Sync lip movement with speech synthesis
   useEffect(() => {
     if (isSpeaking) {
       audioIntervalRef.current = setInterval(() => {
@@ -138,13 +195,6 @@ export default function Dashboard({ session }) {
     };
   }, [isSpeaking]);
 
-  // Load mood logs on mount and tab switch
-  useEffect(() => {
-    if (session) {
-      loadJournalLogs();
-    }
-  }, [session]);
-
   const loadJournalLogs = async () => {
     try {
       const { data, error } = await supabase
@@ -155,7 +205,7 @@ export default function Dashboard({ session }) {
       if (error) throw error;
       setJournalLogs(data || []);
     } catch (err) {
-      console.warn('Supabase mood_logs select failed, reading from localStorage:', err);
+      console.warn('Supabase select failed, reading from localStorage:', err);
       const local = localStorage.getItem('swasthya_journal_logs');
       if (local) {
         setJournalLogs(JSON.parse(local));
@@ -164,11 +214,33 @@ export default function Dashboard({ session }) {
   };
 
   // Handle server responses (LLM schema)
-  const handleWellnessResponse = (data) => {
+  const handleWellnessResponse = (data, userText = '') => {
     setResponse(data);
     setAvatarCue(data.avatar_motor_cue || 'empathetic_nod');
     setCaptions(data.spoken_script);
     
+    // Update local onboard profile cache to save the latest analysis suggestions
+    if (onboardData) {
+      const updatedProfile = { ...onboardData, analysis: data };
+      setOnboardData(updatedProfile);
+      localStorage.setItem('swasthya_onboard_data', JSON.stringify(updatedProfile));
+    }
+
+    // Persist this voice conversation turn to Supabase or localStorage in real-time
+    const newLog = {
+      user_id: session?.user?.id,
+      content: userText || transcription || 'Voice Session Turn',
+      mood: data.mood || data.emotional_analysis || 'Stressed',
+      stress_triggers: data.stress_triggers || [data.emotional_analysis || 'Stress Response'],
+      coping_strategy: data.coping_strategy || data.spoken_script || '',
+      mindfulness_exercise: data.mindfulness_exercise || 'Take deep breaths.',
+      encouragement: data.encouragement || data.spoken_script || '',
+      resource: data.resource || data.multimedia_suggestion || null,
+      created_at: new Date().toISOString()
+    };
+
+    saveMoodLog(newLog);
+
     if (data.audio_base64) {
       playBase64Audio(data.audio_base64, data.spoken_script);
     } else {
@@ -200,20 +272,34 @@ export default function Dashboard({ session }) {
       audio.play();
       window.currentAudioElement = audio;
     } catch (err) {
-      console.error('Failed to create/play Audio object:', err);
+      console.error('Failed to play Audio object:', err);
       speakText(fallbackText);
     }
   };
 
+  // Speaks text using local English-India female speech patterns
   const speakText = (text) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       
       const utterance = new SpeechSynthesisUtterance(text);
       const voices = window.speechSynthesis.getVoices();
-      const indianVoice = voices.find(voice => voice.lang.includes('IN') || voice.name.toLowerCase().includes('india') || voice.name.toLowerCase().includes('google'));
-      if (indianVoice) utterance.voice = indianVoice;
-
+      
+      // Look specifically for English-India (en-IN) or Hindi female voice assistants
+      const indianFemaleVoice = voices.find(voice => 
+        (voice.lang.includes('en-IN') || voice.lang.includes('hi-IN')) && 
+        (voice.name.toLowerCase().includes('female') || 
+         voice.name.toLowerCase().includes('girl') || 
+         voice.name.toLowerCase().includes('google') || 
+         voice.name.toLowerCase().includes('heera') || 
+         voice.name.toLowerCase().includes('veena') ||
+         !voice.name.toLowerCase().includes('karan')) // exclude male names
+      );
+      
+      if (indianFemaleVoice) {
+        utterance.voice = indianFemaleVoice;
+      }
+      
       utterance.onstart = () => {
         setIsSpeaking(true);
       };
@@ -249,7 +335,10 @@ export default function Dashboard({ session }) {
       }));
     } else {
       try {
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+        let backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+        if (window.location.hostname !== 'localhost' && (backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1'))) {
+          backendUrl = 'https://my-backend-api-8kd9.onrender.com';
+        }
         const res = await fetch(`${backendUrl}/api/wellness`, {
           method: 'POST',
           headers: {
@@ -268,62 +357,110 @@ export default function Dashboard({ session }) {
     }
   };
 
-  // Journal submission analysis and DB persistence
-  const handleJournalSubmit = async (e) => {
-    if (e) e.preventDefault();
-    if (!journalText.trim()) return;
+  // Submit onboarding questionnaire and run first diagnostic analysis
+  const handleOnboardSubmit = async (e) => {
+    e.preventDefault();
+    if (!onboardForm.name.trim() || !onboardForm.struggle.trim()) return;
 
     setIsAnalyzingJournal(true);
-    setJournalAnalysisResult(null);
+    setErrorText('');
+
+    // Compile text to send to backend classifier
+    const combinedText = `My name is ${onboardForm.name}. I am preparing for ${onboardForm.exam} and studying ${onboardForm.hours} daily. My primary struggle causing stress is: ${onboardForm.struggle}`;
 
     try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+      let backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+      if (window.location.hostname !== 'localhost' && (backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1'))) {
+        backendUrl = 'https://my-backend-api-8kd9.onrender.com';
+      }
+      
       const res = await fetch(`${backendUrl}/api/journal`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: journalText })
+        body: JSON.stringify({ text: combinedText })
       });
       
       const analysis = await res.json();
       if (analysis.error) throw new Error(analysis.error);
 
-      setJournalAnalysisResult(analysis);
+      // Create new profile record
+      const profileData = {
+        name: onboardForm.name,
+        exam: onboardForm.exam,
+        hours: onboardForm.hours,
+        struggle: onboardForm.struggle,
+        analysis: analysis
+      };
 
-      // Create new log object
+      // Set states and save locally
+      setOnboardData(profileData);
+      setResponse(analysis);
+      setAvatarCue(analysis.avatar_motor_cue || 'concerned_listen');
+      setCaptions(analysis.spoken_script || 'Profile loaded successfully.');
+      localStorage.setItem('swasthya_onboard_data', JSON.stringify(profileData));
+
+      // Persist log entry to Supabase/localStorage
       const newLog = {
         user_id: session?.user?.id,
-        content: journalText,
-        mood: analysis.mood,
-        stress_triggers: analysis.stress_triggers,
-        encouragement: analysis.encouragement,
+        content: `Initial Diagnostic: ${onboardForm.struggle}`,
+        mood: analysis.mood || 'Stressed',
+        stress_triggers: analysis.stress_triggers || ['Initial Profile Setup'],
+        coping_strategy: analysis.coping_strategy || analysis.spoken_script || '',
+        mindfulness_exercise: analysis.mindfulness_exercise || 'Take deep breaths.',
+        encouragement: analysis.encouragement || analysis.spoken_script || '',
+        resource: analysis.resource || analysis.multimedia_suggestion || null,
         created_at: new Date().toISOString()
       };
 
-      // Persist to Supabase
-      try {
-        const { data, error } = await supabase
-          .from('mood_logs')
-          .insert([newLog])
-          .select();
+      await saveMoodLog(newLog);
 
-        if (error) throw error;
-        setJournalLogs(prev => [data[0], ...prev]);
-      } catch (dbErr) {
-        console.warn('Supabase insert failed, falling back to localStorage:', dbErr.message);
-        const updatedLogs = [newLog, ...journalLogs];
-        setJournalLogs(updatedLogs);
-        localStorage.setItem('swasthya_journal_logs', JSON.stringify(updatedLogs));
-      }
-
-      setJournalText('');
     } catch (err) {
-      console.error('Failed to submit journal:', err);
-      alert('Failed to analyze journal entry. Please verify your backend server is active.');
+      console.error('Failed to submit onboarding:', err);
+      setErrorText('Failed to analyze initial profile. Please check if your backend server is online.');
     } finally {
       setIsAnalyzingJournal(false);
     }
+  };
+
+  const saveMoodLog = async (newLog) => {
+    try {
+      const { data, error } = await supabase
+        .from('mood_logs')
+        .insert([newLog])
+        .select();
+
+      if (error) throw error;
+      setJournalLogs(prev => [data[0], ...prev]);
+    } catch (dbErr) {
+      console.warn('Supabase insert failed, saving to localStorage:', dbErr.message);
+      setJournalLogs(prev => {
+        const updatedLogs = [newLog, ...prev];
+        localStorage.setItem('swasthya_journal_logs', JSON.stringify(updatedLogs));
+        return updatedLogs;
+      });
+    }
+  };
+
+  const handleSignOut = async () => {
+    stopSpeaking();
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      navigate('/auth');
+    } catch (err) {
+      console.error('Error signing out:', err.message);
+    }
+  };
+
+  const resetProfile = () => {
+    stopSpeaking();
+    setOnboardData(null);
+    setResponse(null);
+    setAvatarCue('concerned_listen');
+    setCaptions('Hello! Tap the microphone below and tell me how you are feeling today.');
+    localStorage.removeItem('swasthya_onboard_data');
   };
 
   const toggleListening = () => {
@@ -340,248 +477,391 @@ export default function Dashboard({ session }) {
     }
   };
 
-  const handleSignOut = async () => {
-    stopSpeaking();
-    await supabase.auth.signOut();
-    navigate('/');
+  // Helper to aggregate logs for stress triggers and mood patterns (Problem Statement Alignment)
+  const getWellnessAnalytics = () => {
+    if (journalLogs.length === 0) return null;
+
+    const moodCounts = {};
+    const triggerCounts = {};
+
+    journalLogs.forEach(log => {
+      if (log.mood) {
+        moodCounts[log.mood] = (moodCounts[log.mood] || 0) + 1;
+      }
+      if (log.stress_triggers && Array.isArray(log.stress_triggers)) {
+        log.stress_triggers.forEach(trigger => {
+          triggerCounts[trigger] = (triggerCounts[trigger] || 0) + 1;
+        });
+      }
+    });
+
+    // Find dominant mood
+    let dominantMood = 'Neutral';
+    let maxMoodCount = 0;
+    Object.keys(moodCounts).forEach(mood => {
+      if (moodCounts[mood] > maxMoodCount) {
+        maxMoodCount = moodCounts[mood];
+        dominantMood = mood;
+      }
+    });
+
+    // Find primary stress trigger
+    let primaryTrigger = 'None detected yet';
+    let maxTriggerCount = 0;
+    Object.keys(triggerCounts).forEach(trig => {
+      if (triggerCounts[trig] > maxTriggerCount) {
+        maxTriggerCount = triggerCounts[trig];
+        primaryTrigger = trig;
+      }
+    });
+
+    return {
+      moodCounts,
+      triggerCounts,
+      dominantMood,
+      primaryTrigger,
+      totalEntries: journalLogs.length
+    };
   };
 
+  const analytics = getWellnessAnalytics();
+
   return (
-    <div className="dashboard-root" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--background)' }}>
-      {/* Header */}
-      <header className="neo-box" style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        padding: '1rem 2rem', 
-        borderRadius: '0px', 
-        borderWidth: '0 0 4px 0',
-        backgroundColor: 'var(--surface)',
-        boxShadow: 'none',
-        zIndex: 10
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <h1 style={{ fontSize: '1.6rem', fontWeight: 'bold', textTransform: 'uppercase' }}>स्वास्थ्य Swasthya</h1>
-          <span style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem', border: '2px solid var(--border)', background: 'var(--accent)', fontWeight: 'bold' }}>EXAM COMPANION</span>
+    <div className="dashboard-root">
+      
+      {/* Header Styled like the Reference Board */}
+      <header className="dashboard-header">
+        <div className="dashboard-header-title">
+          <div className="chunky-logo">
+            MIND KA <span className="logo-highlight-orange">SWASTHYA</span> STRESS KA <span className="logo-highlight-green">END</span>
+          </div>
+          <div className="tagline">
+            Breathe in. Speak out. Ho gaya. A brutally honest wellness companion — student friendly, voice friendly, chai friendly.
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          <span style={{ fontWeight: '500', display: 'none', md: 'inline' }}>
-            {session?.user?.email}
-          </span>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+          {onboardData && (
+            <button onClick={resetProfile} className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.9rem', minHeight: '40px', backgroundColor: 'var(--accent)' }}>
+              RESET PROFILE
+            </button>
+          )}
           <button onClick={handleSignOut} className="btn btn-outline" style={{ padding: '0.4rem 1rem', fontSize: '0.9rem', minHeight: '40px' }}>
             SIGN OUT
           </button>
         </div>
       </header>
 
-      {/* Tab Selector */}
-      <div style={{ display: 'flex', borderBottom: '4px solid var(--border)', backgroundColor: 'var(--surface)' }}>
-        <button
-          onClick={() => { stopSpeaking(); setActiveTab('companion'); }}
-          className="btn"
-          style={{
-            flex: 1,
-            border: 'none',
-            borderRight: '4px solid var(--border)',
-            borderRadius: '0',
-            boxShadow: 'none',
-            backgroundColor: activeTab === 'companion' ? 'var(--accent)' : 'transparent',
-            fontWeight: 'bold',
-            textTransform: 'uppercase'
-          }}
-        >
-          Voice Companion
-        </button>
-        <button
-          onClick={() => { stopSpeaking(); setActiveTab('journal'); }}
-          className="btn"
-          style={{
-            flex: 1,
-            border: 'none',
-            borderRadius: '0',
-            boxShadow: 'none',
-            backgroundColor: activeTab === 'journal' ? 'var(--accent)' : 'transparent',
-            fontWeight: 'bold',
-            textTransform: 'uppercase'
-          }}
-        >
-          Daily Journal & Mood Logs
-        </button>
-      </div>
+      {/* Zig Zag Divider from Reference image */}
+      <hr className="zig-zag-divider" />
 
-      {/* Main Grid */}
-      <main style={{ 
-        flex: 1, 
-        display: 'grid', 
-        gridTemplateColumns: '1fr',
-        gap: '2rem',
-        padding: '2rem',
-        maxWidth: '1200px',
-        width: '100%',
-        margin: '0 auto',
-        boxSizing: 'border-box'
-      }} className="dashboard-grid">
-        
-        <style>{`
-          @media (min-width: 900px) {
-            .dashboard-grid {
-              grid-template-columns: ${activeTab === 'companion' ? '1.6fr 1fr' : '1.2fr 1fr'} !important;
-            }
-          }
-          @keyframes pulsate {
-            0% { box-shadow: 0 0 0 0px rgba(19, 15, 64, 0.4); }
-            100% { box-shadow: 0 0 0 25px rgba(19, 15, 64, 0); }
-          }
-          .mic-pulsate {
-            animation: pulsate 1.5s infinite ease-out;
-          }
-          .avatar-nod {
-            animation: nod 2s infinite ease-in-out;
-            transform-origin: center bottom;
-          }
-          .avatar-breathe {
-            animation: breathe 3s infinite ease-in-out;
-            transform-origin: center bottom;
-          }
-          .avatar-listen {
-            animation: tilt 4s infinite ease-in-out;
-            transform-origin: center bottom;
-          }
-          @keyframes nod {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(6px); }
-          }
-          @keyframes breathe {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.02, 1.03) translateY(-2px); }
-          }
-          @keyframes tilt {
-            0%, 100% { transform: rotate(0deg); }
-            50% { transform: rotate(1.5deg) translateX(2px); }
-          }
-        `}</style>
+      {/* Onboarding View if no profile setup exists */}
+      {!onboardData ? (
+        <div className="onboard-card">
+          <h2 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '1.8rem', marginBottom: '1.5rem', borderBottom: '4px solid var(--border)', paddingBottom: '0.5rem' }}>
+            Alignment Questionnaire
+          </h2>
+          <form onSubmit={handleOnboardSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+            
+            <div className="onboard-form-group">
+              <label htmlFor="student-name">1. What is your name, beta?</label>
+              <input
+                id="student-name"
+                type="text"
+                value={onboardForm.name}
+                onChange={(e) => setOnboardForm({ ...onboardForm, name: e.target.value })}
+                placeholder="Enter your name"
+                required
+              />
+            </div>
 
-        {activeTab === 'companion' ? (
-          <>
-            {/* COMPANION VIEW */}
-            <section style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              {/* Focus Container - Responsive 2D Vector Avatar */}
+            <div className="onboard-form-group">
+              <label htmlFor="student-exam">2. Which exam are you preparing for?</label>
+              <select
+                id="student-exam"
+                value={onboardForm.exam}
+                onChange={(e) => setOnboardForm({ ...onboardForm, exam: e.target.value })}
+              >
+                <option value="JEE">JEE Main / Advanced</option>
+                <option value="NEET">NEET UG</option>
+                <option value="UPSC">UPSC Civil Services</option>
+                <option value="CUET">CUET</option>
+                <option value="CAT">CAT / MBA Entrance</option>
+                <option value="GATE">GATE</option>
+              </select>
+            </div>
+
+            <div className="onboard-form-group">
+              <label htmlFor="student-hours">3. How many hours do you study daily?</label>
+              <select
+                id="student-hours"
+                value={onboardForm.hours}
+                onChange={(e) => setOnboardForm({ ...onboardForm, hours: e.target.value })}
+              >
+                <option value="Under 6 hours">Under 6 hours</option>
+                <option value="6 to 10 hours">6 to 10 hours</option>
+                <option value="More than 10 hours">More than 10 hours</option>
+              </select>
+            </div>
+
+            <div className="onboard-form-group">
+              <label htmlFor="student-struggle">4. What is the biggest struggle you face right now?</label>
+              <textarea
+                id="student-struggle"
+                value={onboardForm.struggle}
+                onChange={(e) => setOnboardForm({ ...onboardForm, struggle: e.target.value })}
+                placeholder="Physics mock test score, parental expectations, sleeping late, focus issues..."
+                rows="3"
+                required
+              />
+            </div>
+
+            {errorText && (
+              <div style={{ padding: '0.8rem', backgroundColor: 'var(--error)', color: '#FFFFFF', fontWeight: 'bold', border: '3px solid var(--border)' }}>
+                {errorText}
+              </div>
+            )}
+
+            <button type="submit" disabled={isAnalyzingJournal} className="btn btn-primary btn-full">
+              {isAnalyzingJournal ? 'ACTIVATING WELLNESS MODULE...' : 'ACTIVATE WELLNESS MODULE'}
+            </button>
+          </form>
+        </div>
+      ) : (
+        /* The Three Columns board layout aligned with Reference Image */
+        <div className="columns-grid">
+          
+          {/* Column 1: APNA HAAL (Your Profile Status) */}
+          <section className="column-container">
+            <div className="column-header column-header-orange">
+              AAJ KA HAAL
+              <span className="column-subheader">Your profile status</span>
+            </div>
+            
+            <div className="column-body">
+              <div className="neo-box" style={{ padding: '1rem', background: 'var(--background)', border: '2px solid var(--border)', boxShadow: 'none' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>NAME:</span>
+                <p style={{ fontWeight: 'bold', fontSize: '1.2rem' }}>{onboardData.name}</p>
+              </div>
+
+              <div className="neo-box" style={{ padding: '1rem', background: 'var(--background)', border: '2px solid var(--border)', boxShadow: 'none' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>TARGET EXAM:</span>
+                <p style={{ fontWeight: 'bold', fontSize: '1.2rem' }}>{onboardData.exam}</p>
+              </div>
+
+              {/* Aggregated Stress Analytics (Direct Problem Statement Alignment) */}
+              {analytics && (
+                <div className="neo-box" style={{ border: '4px solid var(--border)', background: 'var(--accent-light)', boxShadow: 'none', padding: '1rem' }}>
+                  <h4 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.9rem', marginBottom: '0.6rem' }}>Uncovered Stress Triggers</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ fontSize: '0.85rem' }}>
+                      <strong>DOMINANT MOOD:</strong> <span style={{ background: 'var(--accent-pink)', border: '1px solid var(--border)', padding: '0.1rem 0.4rem', fontWeight: 'bold' }}>{analytics.dominantMood.toUpperCase()}</span>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', marginTop: '0.2rem' }}>
+                      <strong>PRIMARY TRIGGER:</strong> <span style={{ fontStyle: 'italic', fontWeight: 'bold' }}>{analytics.primaryTrigger}</span>
+                    </div>
+                    <div style={{ marginTop: '0.5rem', borderTop: '2px dashed var(--border)', paddingTop: '0.5rem' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>TRIGGER FREQUENCY:</span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.3rem' }}>
+                        {Object.keys(analytics.triggerCounts).map((trig, index) => (
+                          <span key={index} style={{ fontSize: '0.75rem', padding: '0.1rem 0.3rem', border: '1px solid var(--border)', background: '#FFFFFF' }}>
+                            {trig} ({analytics.triggerCounts[trig]})
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Historical Mood Logs */}
+              <div style={{ marginTop: 'auto', borderTop: '4px solid var(--border)', paddingTop: '1rem' }}>
+                <h4 style={{ textTransform: 'uppercase', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.8rem' }}>Diagnostic History</h4>
+                <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  {journalLogs.map((log, idx) => (
+                    <div key={idx} style={{ padding: '0.5rem', background: '#FFFFFF', border: '2px solid var(--border)', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 'bold' }}>{log.mood}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleDateString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Column 2: DOST KI SALAH (Tailored Advice) */}
+          <section className="column-container">
+            <div className="column-header column-header-gold">
+              DOST KI SALAH
+              <span className="column-subheader">Tailored Coping Strategy</span>
+            </div>
+            
+            <div className="column-body">
+              {response ? (
+                <>
+                  <div className="neo-box" style={{ border: '3px solid var(--border)', background: 'var(--surface)', boxShadow: 'none', padding: '1rem' }}>
+                    <h4 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ width: '8px', height: '8px', background: 'var(--accent)', border: '1px solid var(--border)' }}></span>
+                      Actionable Coping Strategy
+                    </h4>
+                    <p style={{ fontSize: '0.95rem', lineHeight: '1.5' }}>{response.coping_strategy || response.spoken_script}</p>
+                  </div>
+
+                  <div className="neo-box" style={{ border: '3px solid var(--border)', background: 'var(--surface)', boxShadow: 'none', padding: '1rem' }}>
+                    <h4 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ width: '8px', height: '8px', background: 'var(--accent-green)', border: '1px solid var(--border)' }}></span>
+                      Mindfulness Pause
+                    </h4>
+                    <p style={{ fontSize: '0.95rem', lineHeight: '1.5' }}>{response.mindfulness_exercise || 'Take 5 deep breaths in and out slowly to reset your heartbeat.'}</p>
+                  </div>
+
+                  {/* Interactive Checklist (Problem Statement Alignment) */}
+                  <div className="neo-box" style={{ border: '3px solid var(--border)', background: '#E3F2FD', padding: '1rem', boxShadow: 'none' }}>
+                    <h4 style={{ textTransform: 'uppercase', fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.6rem', color: '#0D47A1' }}>
+                      Daily Stress-Relief Actions
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {actions.map(act => (
+                        <label key={act.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                          <input
+                            type="checkbox"
+                            checked={act.done}
+                            onChange={() => toggleAction(act.id)}
+                            style={{ width: '18px', height: '18px', border: '3px solid var(--border)', cursor: 'pointer' }}
+                          />
+                          <span style={{ textDecoration: act.done ? 'line-through' : 'none', color: act.done ? 'var(--text-muted)' : 'var(--text)' }}>
+                            {act.text}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="neo-box" style={{ border: '3px solid var(--border)', background: 'var(--background)', boxShadow: 'none', padding: '1rem', fontStyle: 'italic', marginTop: 'auto' }}>
+                    <h4 style={{ textTransform: 'uppercase', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.3rem', fontStyle: 'normal' }}>Motivational Boost</h4>
+                    <p style={{ fontSize: '0.95rem', fontWeight: 'bold' }}>"{response.encouragement || response.spoken_script}"</p>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '2rem', textAlign: 'center', border: '3px dashed var(--border)' }}>
+                  <p style={{ color: 'var(--text-muted)' }}>Waiting for diagnostics analysis...</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Column 3: MANN KI SHANTI (Voice Companion & Media) */}
+          <section className="column-container">
+            <div className="column-header column-header-green">
+              MANN KI SHANTI
+              <span className="column-subheader">Companion & Calming Media</span>
+            </div>
+            
+            <div className="column-body" style={{ gap: '1rem' }}>
+              {/* Responsive SVG Avatar Box */}
               <div className="neo-box" style={{ 
-                flex: 1, 
                 display: 'flex', 
                 justifyContent: 'center', 
                 alignItems: 'center', 
-                position: 'relative', 
                 backgroundColor: '#FFF4CC', 
-                padding: '2rem',
-                minHeight: '350px',
-                overflow: 'hidden'
-              }} aria-label="Interactive 2D Swasthya Wellness Avatar">
-                
-                <div style={{ position: 'absolute', top: '1rem', left: '1rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <span style={{ 
-                    width: '12px', 
-                    height: '12px', 
-                    borderRadius: '50%', 
-                    background: isSpeaking ? '#1DD1A1' : '#130F40',
-                    border: '2px solid var(--border)'
-                  }}></span>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
-                    {isSpeaking ? 'SPEAKING' : 'LISTENING'}
-                  </span>
-                </div>
-
+                padding: '1rem',
+                minHeight: '230px',
+                border: '3px solid var(--border)',
+                boxShadow: 'none',
+                position: 'relative'
+              }}>
                 <div className={
                   avatarCue === 'empathetic_nod' ? 'avatar-nod' :
                   avatarCue === 'calm_breathing_motion' ? 'avatar-breathe' :
                   avatarCue === 'concerned_listen' ? 'avatar-listen' : 'avatar-breathe'
-                } style={{ width: '220px', height: '220px', display: 'flex', justifyContent: 'center' }}>
+                } style={{ width: '150px', height: '150px', display: 'flex', justifyContent: 'center' }}>
                   
-                  <svg width="220" height="220" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="50" cy="50" r="45" fill="#FFFFFF" stroke="#130F40" strokeWidth="3" />
-                    <path d="M15 45C15 22.5 32.5 15 50 15C67.5 15 85 22.5 85 45V55H15V45Z" fill="#130F40" />
-                    <rect x="25" y="32" width="50" height="42" rx="25" fill="#FDFBF7" stroke="#130F40" strokeWidth="3.5" />
-                    <path d="M25 35C35 28 45 32 50 35C55 32 65 28 75 35C75 35 70 25 50 25C30 25 25 35 25 35Z" fill="#130F40" />
-                    <path d="M32 44C35 41 39 42 41 44" stroke="#130F40" strokeWidth="2.5" strokeLinecap="round" />
-                    <path d="M59 44C61 42 65 41 68 44" stroke="#130F40" strokeWidth="2.5" strokeLinecap="round" />
+                  <svg width="150" height="150" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="50" cy="50" r="46" fill="#FFFFFF" stroke="#130F40" strokeWidth="3" />
+                    <path d="M22 45C20 65 25 85 28 88C32 80 25 55 25 45C25 22.5 35 12 50 12C65 12 75 22.5 75 45C75 55 68 80 72 88C75 85 80 65 78 45C78 20 66 12 50 12C34 12 22 20 22 45Z" fill="#130F40" />
+                    <path d="M35 74L40 68V62H60V68L65 74C65 74 58 78 50 78C42 78 35 74 35 74Z" fill="#FDFBF7" stroke="#130F40" strokeWidth="2.5" />
+                    <path d="M35 74C40 85 60 85 65 74" fill="none" stroke="#130F40" strokeWidth="2.5" />
+                    <path d="M48 76L50 82L52 76" stroke="#130F40" strokeWidth="2.5" fill="none" />
+                    <path d="M28 42C28 26 36 22 50 22C64 22 72 26 72 42C72 60 62 67 50 67C38 67 28 60 28 42Z" fill="#FDFBF7" stroke="#130F40" strokeWidth="3" />
+                    <circle cx="50" cy="36" r="1.8" fill="#FF5252" stroke="#130F40" strokeWidth="0.5" />
+                    <path d="M28 35C35 22 45 23 50 28C55 23 65 22 72 35C70 24 60 20 50 24C40 20 30 24 28 35Z" fill="#130F40" />
+                    <path d="M25 48L27 53L25 55H29L27 53Z" fill="#F9CA24" stroke="#130F40" strokeWidth="1" />
+                    <circle cx="27" cy="56" r="1.5" fill="#FF5252" />
+                    <path d="M75 48L73 53L75 55H71L73 53Z" fill="#F9CA24" stroke="#130F40" strokeWidth="1" />
+                    <circle cx="73" cy="56" r="1.5" fill="#FF5252" />
+                    <path d="M34 40C38 37 42 38 44 40" stroke="#130F40" strokeWidth="2.2" strokeLinecap="round" />
+                    <path d="M56 40C58 38 62 37 66 40" stroke="#130F40" strokeWidth="2.2" strokeLinecap="round" />
 
                     {avatarCue === 'concerned_listen' ? (
                       <>
-                        <ellipse cx="37" cy="48" rx="3" ry="4.5" fill="#130F40" />
-                        <ellipse cx="63" cy="48" rx="3" ry="4.5" fill="#130F40" />
+                        <ellipse cx="39" cy="45" rx="3.5" ry="4.5" fill="#130F40" />
+                        <ellipse cx="61" cy="45" rx="3.5" ry="4.5" fill="#130F40" />
+                        <circle cx="40.5" cy="43.5" r="1" fill="#FFFFFF" />
+                        <circle cx="62.5" cy="43.5" r="1" fill="#FFFFFF" />
                       </>
                     ) : avatarCue === 'warm_smile' || avatarCue === 'reassuring_look' ? (
                       <>
-                        <path d="M33 49C35 46 39 46 41 49" stroke="#130F40" strokeWidth="3" strokeLinecap="round" />
-                        <path d="M59 49C61 46 65 46 67 49" stroke="#130F40" strokeWidth="3" strokeLinecap="round" />
+                        <path d="M34 46C36 43 42 43 44 46" stroke="#130F40" strokeWidth="3" strokeLinecap="round" />
+                        <path d="M56 46C58 43 64 43 66 46" stroke="#130F40" strokeWidth="3" strokeLinecap="round" />
                       </>
                     ) : (
                       <>
-                        <ellipse cx="37" cy="48" rx="3.5" ry="3.5" fill="#130F40" />
-                        <ellipse cx="63" cy="48" rx="3.5" ry="3.5" fill="#130F40" />
+                        <ellipse cx="39" cy="45" rx="4" ry="4" fill="#130F40" />
+                        <ellipse cx="61" cy="45" rx="4" ry="4" fill="#130F40" />
+                        <circle cx="40.5" cy="43.5" r="1.2" fill="#FFFFFF" />
+                        <circle cx="62.5" cy="43.5" r="1.2" fill="#FFFFFF" />
                       </>
                     )}
 
                     {(avatarCue === 'warm_smile' || avatarCue === 'reassuring_look') && (
                       <>
-                        <circle cx="31" cy="54" r="3" fill="#FF5252" fillOpacity="0.4" />
-                        <circle cx="69" cy="54" r="3" fill="#FF5252" fillOpacity="0.4" />
+                        <circle cx="34" cy="51" r="3.5" fill="#FF5252" fillOpacity="0.35" />
+                        <circle cx="66" cy="51" r="3.5" fill="#FF5252" fillOpacity="0.35" />
                       </>
                     )}
 
-                    <path d="M50 48V53C50 54 49 55 47 55" stroke="#130F40" strokeWidth="2.5" strokeLinecap="round" />
+                    <path d="M50 44V51C50 52.5 48.5 53 47.5 53" stroke="#130F40" strokeWidth="2.5" strokeLinecap="round" />
 
                     {isSpeaking ? (
-                      <ellipse cx="50" cy="61" rx="6" ry={mouthOpenAmount} fill="#130F40" />
+                      <ellipse cx="50" cy="59" rx="7" ry={mouthOpenAmount} fill="#130F40" />
                     ) : avatarCue === 'warm_smile' ? (
-                      <path d="M44 59C46 62 54 62 56 59" stroke="#130F40" strokeWidth="3" strokeLinecap="round" />
+                      <path d="M43 57C46 61.5 54 61.5 57 57" stroke="#130F40" strokeWidth="3.2" strokeLinecap="round" />
                     ) : avatarCue === 'concerned_listen' ? (
-                      <line x1="44" y1="60" x2="56" y2="60" stroke="#130F40" strokeWidth="3" strokeLinecap="round" />
+                      <line x1="43" y1="58" x2="57" y2="58" stroke="#130F40" strokeWidth="3.2" strokeLinecap="round" />
                     ) : (
-                      <path d="M45 60C47 61.5 53 61.5 55 60" stroke="#130F40" strokeWidth="2.5" strokeLinecap="round" />
+                      <path d="M44 58C47 60 53 60 56 58" stroke="#130F40" strokeWidth="2.8" strokeLinecap="round" />
                     )}
                   </svg>
                 </div>
-
-                <div style={{ position: 'absolute', bottom: '1rem', right: '1rem', background: '#FFFFFF', border: '3px solid var(--border)', padding: '0.2rem 0.6rem', fontSize: '0.8rem', fontWeight: 'bold' }}>
-                  {avatarCue.replace(/_/g, ' ').toUpperCase()}
-                </div>
               </div>
 
-              {/* Captions */}
-              <div className="neo-box" style={{ backgroundColor: 'var(--surface)', padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <h4 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 'bold' }}>Captions</h4>
-                <div 
-                  id="live-captions" 
-                  aria-live="polite" 
-                  aria-atomic="true"
-                  style={{ fontSize: '1.2rem', fontWeight: 'bold', minHeight: '60px', lineHeight: '1.6', color: 'var(--text)' }}
-                >
-                  {captions}
-                </div>
+              {/* Real-time captions block */}
+              <div className="neo-box" style={{ padding: '0.8rem', border: '3px solid var(--border)', boxShadow: 'none', background: 'var(--surface)' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>CAPTIONS:</span>
+                <p id="live-captions" aria-live="polite" style={{ fontSize: '0.95rem', fontWeight: 'bold', minHeight: '40px', lineHeight: '1.4' }}>{captions}</p>
               </div>
 
-              {/* Mic Controls */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem' }}>
+              {/* Pulsating Microphone interface */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }}>
                 <button
                   onClick={toggleListening}
                   className={`mic-btn ${isListening ? 'mic-pulsate' : ''}`}
-                  aria-label={isListening ? "Stop listening to speech" : "Start speaking, microphone button"}
+                  aria-label="Toggle wellness mic listening"
                   style={{
-                    width: '90px',
-                    height: '90px',
+                    width: '70px',
+                    height: '70px',
                     borderRadius: '50%',
-                    backgroundColor: isListening ? 'var(--error)' : 'var(--accent)',
+                    backgroundColor: isListening ? 'var(--error)' : 'var(--accent-green)',
                     border: '4px solid var(--border)',
                     cursor: 'pointer',
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    boxShadow: isListening ? 'none' : '4px 6px 0px var(--border)',
+                    boxShadow: isListening ? 'none' : '3px 4px 0px var(--border)',
                     transition: 'all 0.1s ease'
                   }}
                 >
-                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="3">
                     {isListening ? (
                       <rect x="4" y="4" width="16" height="16" rx="2" fill="var(--border)" />
                     ) : (
@@ -593,215 +873,87 @@ export default function Dashboard({ session }) {
                     )}
                   </svg>
                 </button>
-                <span style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.9rem' }}>
-                  {isListening ? 'TAP TO COMPLETE SPEECH' : 'TAP MIC & SPEAK'}
+                <span style={{ fontWeight: 'bold', fontSize: '0.8rem', textTransform: 'uppercase' }}>
+                  {isListening ? 'SPEAK NOW...' : 'TAP MIC TO RESPOND'}
                 </span>
               </div>
 
-              {errorText && (
-                <div className="neo-box" style={{ backgroundColor: 'var(--error)', color: '#FFFFFF', fontWeight: 'bold', padding: '0.8rem', textAlign: 'center' }}>
-                  {errorText}
-                </div>
-              )}
-            </section>
-
-            {/* Sidebar */}
-            <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <div className="neo-box" style={{ backgroundColor: 'var(--surface)', height: '100%', display: 'flex', flexDirection: 'column', gap: '1.5rem', borderLeft: '4px solid var(--border)' }}>
-                <div>
-                  <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '0.2rem' }}>Grounding Tools</h2>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>Real-time suggestions helper</p>
-                </div>
-                <hr style={{ border: 'none', borderTop: '4px solid var(--border)' }} />
-
-                {response && response.multimedia_suggestion ? (
-                  <div style={{ backgroundColor: 'var(--accent)', border: '4px solid var(--border)', padding: '1.2rem', boxShadow: '4px 4px 0px var(--border)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '0.1rem 0.5rem', border: '2px solid var(--border)', background: '#FFFFFF' }}>
-                        {response.multimedia_suggestion.type.toUpperCase().replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                    <h3 style={{ fontSize: '1.3rem', fontWeight: 'bold', textTransform: 'uppercase', lineHeight: '1.2' }}>{response.multimedia_suggestion.title}</h3>
-
-                    <div style={{ border: '4px solid var(--border)', background: '#000000', overflow: 'hidden', position: 'relative' }}>
-                      {response.multimedia_suggestion.type === 'youtube_embed_id' && (
-                        <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
-                          <iframe
-                            src={`https://www.youtube.com/embed/${response.multimedia_suggestion.value}?autoplay=0&rel=0`}
-                            title={response.multimedia_suggestion.title}
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 0 }}
-                            aria-label={`Calming video suggestion: ${response.multimedia_suggestion.title}`}
-                          />
-                        </div>
-                      )}
-
-                      {response.multimedia_suggestion.type === 'calming_image_query' && (
-                        <img
-                          src={`https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80`}
-                          alt={response.multimedia_suggestion.accessible_rationale}
-                          style={{ width: '100%', display: 'block', height: '200px', objectFit: 'cover' }}
+              {/* Multimedia grounding resource (YouTube / Calming images) */}
+              {response && response.multimedia_suggestion ? (
+                <div style={{ border: '3px solid var(--border)', backgroundColor: 'var(--accent-gold)', padding: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: 'auto' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '0.1rem 0.4rem', border: '1px solid var(--border)', background: '#FFFFFF', width: 'fit-content' }}>
+                    {response.multimedia_suggestion.type.toUpperCase()}
+                  </span>
+                  <div style={{ border: '3px solid var(--border)', background: '#000000', overflow: 'hidden' }}>
+                    {response.multimedia_suggestion.type === 'youtube_embed_id' && (
+                      <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+                        <iframe
+                          src={`https://www.youtube.com/embed/${response.multimedia_suggestion.value}?autoplay=0`}
+                          title={response.multimedia_suggestion.title}
+                          allowFullScreen
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 0 }}
                         />
-                      )}
-
-                      {response.multimedia_suggestion.type === 'grounding_gif_url' && (
-                        <img
-                          src={response.multimedia_suggestion.value}
-                          alt={response.multimedia_suggestion.accessible_rationale}
-                          style={{ width: '100%', display: 'block', minHeight: '180px', maxHeight: '250px', objectFit: 'contain', background: '#FFFFFF' }}
-                        />
-                      )}
-                    </div>
-
-                    <div style={{ fontSize: '0.95rem', color: 'var(--text)', background: 'var(--background)', padding: '0.8rem', border: '2px solid var(--border)', fontWeight: '500' }}>
-                      <strong>Why this helps:</strong> {response.multimedia_suggestion.accessible_rationale}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '2rem', border: '4px dashed var(--border)', backgroundColor: 'var(--background)', textAlign: 'center' }}>
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '1rem' }}>
-                      <circle cx="12" cy="12" r="10" /><line x1="8" y1="12" x2="16" y2="12" /><line x1="12" y1="8" x2="12" y2="16" />
-                    </svg>
-                    <h4 style={{ fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Suggestions Waiting</h4>
-                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Once you speak your thoughts, relaxing visuals and advice will display here.</p>
-                  </div>
-                )}
-
-                {response && response.emotional_analysis && (
-                  <div className="neo-box" style={{ background: 'var(--background)', border: '3px solid var(--border)', padding: '0.8rem 1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: 'none' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>EMOTIONAL STATE:</span>
-                    <span style={{ fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text)' }}>{response.emotional_analysis.toUpperCase()}</span>
-                  </div>
-                )}
-              </div>
-            </aside>
-          </>
-        ) : (
-          <>
-            {/* DAILY JOURNALING VIEW */}
-            <section style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <div className="neo-box" style={{ backgroundColor: 'var(--surface)' }}>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '1rem' }}>Write Today's Journal</h2>
-                <form onSubmit={handleJournalSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <label style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.9rem' }}>How was your study session? Any stress triggers?</label>
-                    <textarea
-                      value={journalText}
-                      onChange={(e) => setJournalText(e.target.value)}
-                      placeholder="Describe your prep, mock test results, study target, parental pressures or burnout... Example: I studied for 8 hours but I failed my physics mock test. I am feeling extremely stressed about the results..."
-                      style={{
-                        width: '100%',
-                        height: '150px',
-                        padding: '1rem',
-                        fontSize: '1.1rem',
-                        fontFamily: 'var(--font-family)',
-                        border: '4px solid var(--border)',
-                        background: 'var(--background)',
-                        color: 'var(--text)',
-                        resize: 'vertical'
-                      }}
-                      required
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '1rem' }}>
-                    <button
-                      type="button"
-                      onClick={toggleListening}
-                      className="btn btn-secondary"
-                      style={{ flex: 0.4 }}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: '4px' }}>
-                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                        <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-                        <line x1="12" y1="19" x2="12" y2="22" />
-                      </svg>
-                      {isListening ? 'LISTENING...' : 'DICTATE'}
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isAnalyzingJournal || !journalText.trim()}
-                      className="btn btn-primary"
-                      style={{ flex: 0.6 }}
-                    >
-                      {isAnalyzingJournal ? 'ANALYZING JOURNAL...' : 'SAVE & ANALYZE ENTRY'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-
-              {/* Display analysis results instantly */}
-              {journalAnalysisResult && (
-                <div className="neo-box" style={{ backgroundColor: 'var(--accent-light)', border: '4px solid var(--border)' }}>
-                  <h3 style={{ textTransform: 'uppercase', fontWeight: 'bold', marginBottom: '0.8rem' }}>Journal Insights</h3>
-                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                    <div style={{ padding: '0.4rem 0.8rem', background: 'var(--surface)', border: '2px solid var(--border)', fontWeight: 'bold' }}>
-                      MOOD: {journalAnalysisResult.mood.toUpperCase()}
-                    </div>
-                    {journalAnalysisResult.stress_triggers.map((trigger, idx) => (
-                      <div key={idx} style={{ padding: '0.4rem 0.8rem', background: 'var(--accent)', border: '2px solid var(--border)', fontWeight: 'bold' }}>
-                        TRIGGER: {trigger.toUpperCase()}
                       </div>
-                    ))}
+                    )}
+                    {response.multimedia_suggestion.type === 'calming_image_query' && (
+                      <img
+                        src={`https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80`}
+                        alt={response.multimedia_suggestion.accessible_rationale}
+                        style={{ width: '100%', display: 'block', height: '140px', objectFit: 'cover' }}
+                      />
+                    )}
+                    {response.multimedia_suggestion.type === 'grounding_gif_url' && (
+                      <img
+                        src={response.multimedia_suggestion.value}
+                        alt={response.multimedia_suggestion.accessible_rationale}
+                        style={{ width: '100%', display: 'block', maxHeight: '150px', objectFit: 'contain', background: '#FFFFFF' }}
+                      />
+                    )}
                   </div>
-                  <p style={{ fontSize: '1.1rem', fontWeight: '500', padding: '0.8rem', background: '#FFFFFF', border: '2px solid var(--border)' }}>
-                    <strong>Wellness Tip:</strong> {journalAnalysisResult.encouragement}
-                  </p>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>{response.multimedia_suggestion.title}</div>
                 </div>
-              )}
-            </section>
-
-            {/* History logs timeline */}
-            <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <div className="neo-box" style={{ backgroundColor: 'var(--surface)', maxHeight: '70vh', overflowY: 'auto' }}>
-                <h3 style={{ textTransform: 'uppercase', fontWeight: 'bold', marginBottom: '1rem' }}>Journal History</h3>
-                
-                {journalLogs.length === 0 ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', border: '4px dashed var(--border)' }}>
-                    <p style={{ color: 'var(--text-muted)' }}>No journal logs found. Save your first entry to track emotional trends.</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                    {journalLogs.map((log, index) => (
-                      <div key={index} className="neo-box" style={{ padding: '1rem', background: 'var(--background)', border: '2px solid var(--border)', boxShadow: 'none' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
-                            {new Date(log.created_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                          <span style={{ 
-                            fontSize: '0.75rem', 
-                            fontWeight: 'bold', 
-                            padding: '0.1rem 0.5rem', 
-                            border: '2px solid var(--border)', 
-                            background: log.mood === 'Anxious' ? 'var(--error)' : log.mood === 'Burnt Out' ? 'var(--accent)' : 'var(--success)',
-                            color: log.mood === 'Anxious' ? '#FFFFFF' : 'var(--text)'
-                          }}>
-                            {log.mood.toUpperCase()}
-                          </span>
-                        </div>
-                        <p style={{ fontSize: '0.95rem', marginBottom: '0.8rem', fontStyle: 'italic' }}>"{log.content}"</p>
-                        
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                          {log.stress_triggers && log.stress_triggers.map((trigger, idx) => (
-                            <span key={idx} style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '0.1rem 0.4rem', border: '1px solid var(--border)', background: 'var(--accent-light)' }}>
-                              {trigger}
-                            </span>
-                          ))}
-                        </div>
-                        <div style={{ fontSize: '0.85rem', padding: '0.5rem', background: '#FFFFFF', border: '1px solid var(--border)' }}>
-                          {log.encouragement}
-                        </div>
+              ) : response && response.resource ? (
+                // Overload resource object if returned from journal analysis
+                <div style={{ border: '3px solid var(--border)', backgroundColor: 'var(--accent-gold)', padding: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: 'auto' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '0.1rem 0.4rem', border: '1px solid var(--border)', background: '#FFFFFF', width: 'fit-content' }}>
+                    {response.resource.type.toUpperCase()}
+                  </span>
+                  <div style={{ border: '3px solid var(--border)', background: '#000000', overflow: 'hidden' }}>
+                    {response.resource.type === 'youtube_embed_id' && (
+                      <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+                        <iframe
+                          src={`https://www.youtube.com/embed/${response.resource.value}?autoplay=0`}
+                          title={response.resource.title}
+                          allowFullScreen
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 0 }}
+                        />
                       </div>
-                    ))}
+                    )}
+                    {response.resource.type === 'calming_image_query' && (
+                      <img
+                        src={`https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80`}
+                        alt={response.resource.accessible_rationale}
+                        style={{ width: '100%', display: 'block', height: '140px', objectFit: 'cover' }}
+                      />
+                    )}
+                    {response.resource.type === 'grounding_gif_url' && (
+                      <img
+                        src={response.resource.value}
+                        alt={response.resource.accessible_rationale}
+                        style={{ width: '100%', display: 'block', maxHeight: '150px', objectFit: 'contain', background: '#FFFFFF' }}
+                      />
+                    )}
                   </div>
-                )}
-              </div>
-            </aside>
-          </>
-        )}
+                  <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>{response.resource.title}</div>
+                </div>
+              ) : null}
 
-      </main>
+            </div>
+          </section>
+
+        </div>
+      )}
+
     </div>
   );
 }

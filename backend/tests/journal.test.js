@@ -22,7 +22,7 @@ describe('Daily Journal Analysis Engine', () => {
 
     expect(analysis.mood).toBe('Anxious');
     expect(analysis.stress_triggers).toContain('Mock Test Scores');
-    expect(analysis.encouragement).toContain('mock tests are diagnostics');
+    expect(analysis.encouragement).toContain('diagnostic feedback');
   });
 
   test('should analyze exhaustion stress and suggest burnout category', async () => {
@@ -31,7 +31,7 @@ describe('Daily Journal Analysis Engine', () => {
 
     expect(analysis.mood).toBe('Burnt Out');
     expect(analysis.stress_triggers).toContain('Study Overload');
-    expect(analysis.encouragement).toContain('cognitive strain');
+    expect(analysis.encouragement).toContain('cognitive overload');
   });
 
   test('should handle empty or null inputs gracefully with default response', async () => {

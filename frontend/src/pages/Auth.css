@@ -131,3 +131,13 @@
 .link-btn:hover {
   color: var(--text-muted);
 }
+
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 1.5rem;
+  }
+  .auth-header h2 {
+    font-size: 1.6rem;
+  }
+}
+
