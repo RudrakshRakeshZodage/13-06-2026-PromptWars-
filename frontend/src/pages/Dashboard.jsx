@@ -47,7 +47,6 @@ export default function Dashboard({ session }) {
     }
     return 'concerned_listen';
   });
-  const [mouthOpenAmount, setMouthOpenAmount] = useState(2);
   const [errorText, setErrorText] = useState('');
 
   // Daily Journaling/Timeline logs
@@ -95,167 +94,12 @@ export default function Dashboard({ session }) {
   }
 
   const speechRecognitionRef = useRef(null);
-  const audioIntervalRef = useRef(null);
   const currentAudioRef = useRef(null);
   const loadJournalLogsRef = useRef();
   const handleWellnessResponseRef = useRef();
   const sendTranscriptionToBackendRef = useRef();
   const stopSpeakingRef = useRef();
   const chatEndRef = useRef(null);
-
-  useEffect(() => {
-    loadJournalLogsRef.current = loadJournalLogs;
-    handleWellnessResponseRef.current = handleWellnessResponse;
-    sendTranscriptionToBackendRef.current = sendTranscriptionToBackend;
-    stopSpeakingRef.current = stopSpeaking;
-  });
-
-  // Load History on mount
-  useEffect(() => {
-    if (session) {
-      loadJournalLogsRef.current();
-    }
-  }, [session]);
-
-  // Pre-load voices for local SpeechSynthesis fallback
-  useEffect(() => {
-    if ('speechSynthesis' in window) {
-      const loadVoices = () => {
-        window.speechSynthesis.getVoices();
-      };
-      loadVoices();
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
-  }, []);
-
-  // Auto scroll chat thread to bottom on message load/updates
-  useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [journalLogs]);
-
-  // Initialize WebSocket connection to backend with Auto-Reconnect
-  useEffect(() => {
-    let ws;
-    let reconnectTimeout;
-    
-    const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      let backendUrl = import.meta.env.VITE_BACKEND_URL || 'localhost:5000';
-      
-      if (window.location.hostname !== 'localhost' && (backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1'))) {
-        backendUrl = 'my-backend-api-8kd9.onrender.com';
-      }
-      
-      const wsUrl = `${protocol}//${backendUrl.replace(/^https?:\/\//, '')}/socket`;
-      console.log('Connecting to WebSocket:', wsUrl);
-      
-      try {
-        ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-          console.log('WebSocket connection opened');
-          setErrorText('');
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const payload = JSON.parse(event.data);
-            if (payload.type === 'wellness_response') {
-              handleWellnessResponseRef.current(payload.data, payload.user_text);
-            }
-          } catch (err) {
-            console.error('Failed parsing WebSocket message:', err);
-          }
-        };
-
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-        };
-
-        ws.onclose = () => {
-          console.log('WebSocket closed, scheduling reconnect in 3s');
-          reconnectTimeout = setTimeout(() => {
-            connect();
-          }, 3000);
-        };
-
-        setSocket(ws);
-      } catch (err) {
-        console.error('WebSocket init failed:', err);
-      }
-    };
-
-    connect();
-
-    return () => {
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-      }
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-    };
-  }, []);
-
-  // Set up Speech Recognition for companion voice
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.lang = 'en-IN';
-      recognition.interimResults = false;
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        setTranscription('Listening...');
-        setCaptions('Listening to your voice...');
-        stopSpeakingRef.current();
-      };
-
-      recognition.onresult = async (event) => {
-        const text = event.results[0][0].transcript;
-        setTranscription(text);
-        setCaptions(`You said: "${text}"`);
-        await sendTranscriptionToBackendRef.current(text);
-      };
-
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setCaptions('Sorry, I couldn\'t catch that. Please try tapping the mic and speaking again.');
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      speechRecognitionRef.current = recognition;
-    }
-  }, [socket]);
-
-  // Sync lip movement with speech synthesis
-  useEffect(() => {
-    if (isSpeaking) {
-      audioIntervalRef.current = setInterval(() => {
-        setMouthOpenAmount(Math.random() * 12 + 3);
-      }, 100);
-    } else {
-      if (audioIntervalRef.current) {
-        clearInterval(audioIntervalRef.current);
-      }
-      setTimeout(() => {
-        setMouthOpenAmount(2);
-      }, 0);
-    }
-
-    return () => {
-      if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
-    };
-  }, [isSpeaking]);
 
   async function loadJournalLogs() {
     try {
@@ -505,7 +349,7 @@ export default function Dashboard({ session }) {
       
       // Client self-diagnostic fallback if backend server is offline
       const lowerStruggle = onboardForm.struggle.toLowerCase();
-      let fallbackAnalysis = null;
+      let fallbackAnalysis;
 
       if (lowerStruggle.includes('fail') || lowerStruggle.includes('test') || lowerStruggle.includes('marks') || lowerStruggle.includes('score') || lowerStruggle.includes('rank') || lowerStruggle.includes('physics')) {
         fallbackAnalysis = {
@@ -758,6 +602,142 @@ export default function Dashboard({ session }) {
       totalEntries: journalLogs.length
     };
   };
+
+  useEffect(() => {
+    loadJournalLogsRef.current = loadJournalLogs;
+    handleWellnessResponseRef.current = handleWellnessResponse;
+    sendTranscriptionToBackendRef.current = sendTranscriptionToBackend;
+    stopSpeakingRef.current = stopSpeaking;
+  });
+
+  // Load History on mount
+  useEffect(() => {
+    if (session) {
+      loadJournalLogsRef.current();
+    }
+  }, [session]);
+
+  // Pre-load voices for local SpeechSynthesis fallback
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      const loadVoices = () => {
+        window.speechSynthesis.getVoices();
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
+  // Auto scroll chat thread to bottom on message load/updates
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [journalLogs]);
+
+  // Initialize WebSocket connection to backend with Auto-Reconnect
+  useEffect(() => {
+    let ws;
+    let reconnectTimeout;
+    
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      let backendUrl = import.meta.env.VITE_BACKEND_URL || 'localhost:5000';
+      
+      if (window.location.hostname !== 'localhost' && (backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1'))) {
+        backendUrl = 'my-backend-api-8kd9.onrender.com';
+      }
+      
+      const wsUrl = `${protocol}//${backendUrl.replace(/^https?:\/\//, '')}/socket`;
+      console.log('Connecting to WebSocket:', wsUrl);
+      
+      try {
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = () => {
+          console.log('WebSocket connection opened');
+          setErrorText('');
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.type === 'wellness_response') {
+              handleWellnessResponseRef.current(payload.data, payload.user_text);
+            }
+          } catch (err) {
+            console.error('Failed parsing WebSocket message:', err);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+          console.log('WebSocket closed, scheduling reconnect in 3s');
+          reconnectTimeout = setTimeout(() => {
+            connect();
+          }, 3000);
+        };
+
+        setSocket(ws);
+      } catch (err) {
+        console.error('WebSocket init failed:', err);
+      }
+    };
+
+    connect();
+
+    return () => {
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+    };
+  }, []);
+
+  // Set up Speech Recognition for companion voice
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.lang = 'en-IN';
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setTranscription('Listening...');
+        setCaptions('Listening to your voice...');
+        stopSpeakingRef.current();
+      };
+
+      recognition.onresult = async (event) => {
+        const text = event.results[0][0].transcript;
+        setTranscription(text);
+        setCaptions(`You said: "${text}"`);
+        await sendTranscriptionToBackendRef.current(text);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setCaptions('Sorry, I couldn\'t catch that. Please try tapping the mic and speaking again.');
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      speechRecognitionRef.current = recognition;
+    }
+  }, [socket]);
+
+  // Removed unused lip sync interval to optimize CPU usage and efficiency
 
   const analytics = getWellnessAnalytics();
 
@@ -1116,22 +1096,42 @@ export default function Dashboard({ session }) {
                   }}
                 />
                 
+                {/* Captions Subtitle Overlay (Accessibility & Interactive Dialog) */}
+                {captions && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '0px',
+                    left: '0px',
+                    right: '0px',
+                    background: 'rgba(19, 15, 64, 0.85)',
+                    color: '#FFFFFF',
+                    padding: '0.4rem 0.6rem',
+                    fontSize: '0.75rem',
+                    fontWeight: '600',
+                    textAlign: 'center',
+                    borderTop: '2px solid var(--border)',
+                    zIndex: 2
+                  }}>
+                    {captions}
+                  </div>
+                )}
+                
                 {/* Active speech avatar indicator badge */}
                 <span style={{
-                  position: 'absolute',
-                  top: '0.75rem',
-                  left: '0.75rem',
-                  background: isSpeaking ? 'var(--accent-green)' : 'var(--accent-gold)',
-                  color: '#130F40',
-                  border: '2px solid var(--border)',
-                  fontSize: '0.7rem',
-                  fontWeight: 'bold',
-                  padding: '0.2rem 0.5rem',
-                  textTransform: 'uppercase',
-                  boxShadow: '2px 2px 0px var(--border)',
-                  zIndex: 2
+                   position: 'absolute',
+                   top: '0.75rem',
+                   left: '0.75rem',
+                   background: isSpeaking ? 'var(--accent-green)' : 'var(--accent-gold)',
+                   color: '#130F40',
+                   border: '2px solid var(--border)',
+                   fontSize: '0.7rem',
+                   fontWeight: 'bold',
+                   padding: '0.2rem 0.5rem',
+                   textTransform: 'uppercase',
+                   boxShadow: '2px 2px 0px var(--border)',
+                   zIndex: 2
                 }}>
-                  {isSpeaking ? '● SWASTHYA SPEAKING' : '● SWASTHYA LISTENING'}
+                  {isSpeaking ? `● SWASTHYA SPEAKING (${avatarCue.replace('_', ' ').toUpperCase()})` : `● SWASTHYA LISTENING (${avatarCue.replace('_', ' ').toUpperCase()})`}
                 </span>
 
                 {/* Real-time speaking audio visualizer soundwave overlay */}
