@@ -1,13 +1,17 @@
 :root {
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --background: #0f1115;
-  --surface: #1e1e24;
-  --text: #f8fafc;
-  --text-muted: #94a3b8;
-  --border: #334155;
-  --error: #ef4444;
-  --success: #22c55e;
+  --primary: #130F40;
+  --background: #FDFBF7;
+  --surface: #FFFFFF;
+  --text: #130F40;
+  --text-muted: #535260;
+  --border: #130F40;
+  --accent: #F9CA24; /* Turmeric Yellow */
+  --accent-light: #FFF4CC;
+  --error: #FF5252;
+  --success: #1DD1A1;
+  --shadow: 8px 8px 0px #130F40;
+  --shadow-hover: 2px 2px 0px #130F40;
+  --font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
 }
 
 * {
@@ -17,10 +21,10 @@
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-family);
   background-color: var(--background);
   color: var(--text);
-  line-height: 1.5;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -29,54 +33,80 @@ a {
   color: inherit;
 }
 
+/* Neo-Brutalist Styling Utilities */
+.neo-box {
+  background-color: var(--surface);
+  border: 4px solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  transition: all 0.2s ease;
+}
+
+.neo-box-interactive:hover {
+  transform: translate(4px, 4px);
+  box-shadow: var(--shadow-hover);
+}
+
 /* Global Button Styles */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  font-weight: 500;
-  font-size: 0.875rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0px; /* Sharp corners for Brutalism */
+  font-family: var(--font-family);
+  font-weight: 700;
+  font-size: 1rem;
   cursor: pointer;
-  transition: all 0.2s;
-  border: none;
+  transition: all 0.15s ease;
+  border: 4px solid var(--border);
   gap: 0.5rem;
+  min-height: 48px; /* WCAG AAA tap targets */
+  min-width: 48px;
+  background-color: var(--surface);
+  color: var(--text);
+  box-shadow: 4px 4px 0px var(--border);
 }
 
 .btn-primary {
-  background-color: var(--primary);
-  color: white;
+  background-color: var(--accent); /* Turmeric accent */
 }
 
 .btn-primary:hover {
-  background-color: var(--primary-hover);
-  transform: translateY(-1px);
+  background-color: #f7b731;
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px var(--border);
 }
 
 .btn-secondary {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: var(--text);
+  background-color: var(--background);
 }
 
 .btn-secondary:hover {
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: var(--accent-light);
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px var(--border);
 }
 
 .btn-outline {
-  background-color: transparent;
-  border: 1px solid var(--border);
-  color: var(--text);
+  background-color: var(--surface);
 }
 
 .btn-outline:hover {
-  border-color: var(--text-muted);
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--background);
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px var(--border);
 }
 
-.btn-large {
-  padding: 0.75rem 1.5rem;
-  font-size: 1rem;
+.btn-danger {
+  background-color: var(--error);
+  color: #FFFFFF;
+}
+
+.btn-danger:hover {
+  background-color: #ff3838;
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px var(--border);
 }
 
 .btn-full {
@@ -84,8 +114,10 @@ a {
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 .loading-screen {
@@ -93,6 +125,9 @@ a {
   justify-content: center;
   align-items: center;
   height: 100vh;
-  font-size: 1.2rem;
-  color: var(--text-muted);
+  font-family: var(--font-family);
+  font-size: 1.5rem;
+  font-weight: bold;
+  background-color: var(--background);
+  color: var(--text);
 }
