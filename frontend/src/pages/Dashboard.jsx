@@ -43,6 +43,19 @@ export default function Dashboard({ session }) {
     setActions(prev => prev.map(act => act.id === id ? { ...act, done: !act.done } : act));
   };
 
+  // Accessibility Theme Toggling
+  const [theme, setTheme] = useState(localStorage.getItem('swasthya_theme') || 'light');
+  const [isProcessingWellness, setIsProcessingWellness] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('swasthya_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
+
   const speechRecognitionRef = useRef(null);
   const audioIntervalRef = useRef(null);
 
@@ -215,6 +228,7 @@ export default function Dashboard({ session }) {
 
   // Handle server responses (LLM schema)
   const handleWellnessResponse = (data, userText = '') => {
+    setIsProcessingWellness(false);
     setResponse(data);
     setAvatarCue(data.avatar_motor_cue || 'empathetic_nod');
     setCaptions(data.spoken_script);
@@ -328,6 +342,9 @@ export default function Dashboard({ session }) {
   };
 
   const sendTranscriptionToBackend = async (text) => {
+    setIsProcessingWellness(true);
+    setCaptions('Swasthya is thinking...');
+
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({
         type: 'user_speech',
@@ -348,11 +365,12 @@ export default function Dashboard({ session }) {
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        handleWellnessResponse(data);
+        handleWellnessResponse(data, text);
       } catch (err) {
         console.error('Error fetching REST wellness:', err);
         setErrorText('Failed to reach backend server.');
         setCaptions('I am having trouble reaching my server right now, but please take a deep breath.');
+        setIsProcessingWellness(false);
       }
     }
   };
@@ -541,6 +559,9 @@ export default function Dashboard({ session }) {
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+          <button onClick={toggleTheme} className="btn btn-outline" style={{ padding: '0.4rem 1rem', fontSize: '0.9rem', minHeight: '40px' }} aria-label="Toggle dark mode">
+            {theme === 'light' ? '🌙 DARK' : '☀️ LIGHT'}
+          </button>
           {onboardData && (
             <button onClick={resetProfile} className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.9rem', minHeight: '40px', backgroundColor: 'var(--accent)' }}>
               RESET PROFILE
@@ -837,15 +858,18 @@ export default function Dashboard({ session }) {
 
               {/* Real-time captions block */}
               <div className="neo-box" style={{ padding: '0.8rem', border: '3px solid var(--border)', boxShadow: 'none', background: 'var(--surface)' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>CAPTIONS:</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
+                  {isProcessingWellness ? 'STATUS:' : 'CAPTIONS:'}
+                </span>
                 <p id="live-captions" aria-live="polite" style={{ fontSize: '0.95rem', fontWeight: 'bold', minHeight: '40px', lineHeight: '1.4' }}>{captions}</p>
               </div>
-
+ 
               {/* Pulsating Microphone interface */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }}>
                 <button
                   onClick={toggleListening}
                   className={`mic-btn ${isListening ? 'mic-pulsate' : ''}`}
+                  disabled={isProcessingWellness}
                   aria-label="Toggle wellness mic listening"
                   style={{
                     width: '70px',
@@ -853,12 +877,13 @@ export default function Dashboard({ session }) {
                     borderRadius: '50%',
                     backgroundColor: isListening ? 'var(--error)' : 'var(--accent-green)',
                     border: '4px solid var(--border)',
-                    cursor: 'pointer',
+                    cursor: isProcessingWellness ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
                     boxShadow: isListening ? 'none' : '3px 4px 0px var(--border)',
-                    transition: 'all 0.1s ease'
+                    transition: 'all 0.1s ease',
+                    opacity: isProcessingWellness ? 0.6 : 1
                   }}
                 >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--border)" strokeWidth="3">

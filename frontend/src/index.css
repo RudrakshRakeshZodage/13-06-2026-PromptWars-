@@ -138,3 +138,23 @@ a {
   background-color: var(--background);
   color: var(--text);
 }
+
+/* Accessibility High-Contrast Dark Mode */
+[data-theme="dark"] {
+  --background: #18191A;
+  --surface: #242526;
+  --text: #F5F6F7;
+  --text-muted: #B0B3B8;
+  --border: #F5F6F7;
+  --accent: #E67E22;
+  --accent-gold: #F1C40F;
+  --accent-green: #2ECC71;
+  --accent-pink: #E74C3C;
+  --shadow: 8px 8px 0px #F5F6F7;
+  --shadow-hover: 2px 2px 0px #F5F6F7;
+}
+
+[data-theme="dark"] body {
+  background-image: radial-gradient(rgba(245, 246, 247, 0.15) 1.5px, transparent 1.5px);
+}
+

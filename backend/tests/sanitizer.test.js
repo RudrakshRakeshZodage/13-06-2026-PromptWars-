@@ -38,4 +38,18 @@ describe('Transcription Text Sanitizer', () => {
     expect(sanitizeInput(undefined)).toBe('');
     expect(sanitizeInput(12345)).toBe('');
   });
+
+  test('should detect and redact SQL injection patterns', () => {
+    const sqlInjections = [
+      'Select * from users union select username, password from admin',
+      'I am feeling stressed OR "1"="1" to unlock secret flags',
+      'This study stress is bad -- drop table logs'
+    ];
+
+    sqlInjections.forEach((sql) => {
+      const output = sanitizeInput(sql);
+      expect(output).toContain('[REDACTED SQL PATTERN]');
+      expect(output).not.toContain('union select');
+    });
+  });
 });

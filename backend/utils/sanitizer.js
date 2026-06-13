@@ -36,6 +36,19 @@ function sanitizeInput(text) {
     }
   }
 
+  // 4. Neutralize common SQL injection signatures
+  const sqlPatterns = [
+    /UNION\s+SELECT/gi,
+    /OR\s+['"]?1['"]?\s*=\s*['"]?1/gi,
+    /--/g
+  ];
+
+  for (const pattern of sqlPatterns) {
+    if (pattern.test(clean)) {
+      clean = clean.replace(pattern, '[REDACTED SQL PATTERN]');
+    }
+  }
+
   return clean;
 }
 
