@@ -13,15 +13,18 @@ create table if not exists public.student_profiles (
 -- Enable Row Level Security (RLS)
 alter table public.student_profiles enable row level security;
 
--- Policies
+-- Policies for student_profiles
+drop policy if exists "Allow users to view their own profile" on public.student_profiles;
 create policy "Allow users to view their own profile" 
   on public.student_profiles for select 
   using (auth.uid() = user_id);
 
+drop policy if exists "Allow users to insert their own profile" on public.student_profiles;
 create policy "Allow users to insert their own profile" 
   on public.student_profiles for insert 
   with check (auth.uid() = user_id);
 
+drop policy if exists "Allow users to update their own profile" on public.student_profiles;
 create policy "Allow users to update their own profile" 
   on public.student_profiles for update 
   using (auth.uid() = user_id)
@@ -45,19 +48,23 @@ create table if not exists public.mood_logs (
 alter table public.mood_logs enable row level security;
 
 -- Policies for mood_logs
+drop policy if exists "Allow users to view their own mood logs" on public.mood_logs;
 create policy "Allow users to view their own mood logs" 
   on public.mood_logs for select 
   using (auth.uid() = user_id);
 
+drop policy if exists "Allow users to insert their own mood logs" on public.mood_logs;
 create policy "Allow users to insert their own mood logs" 
   on public.mood_logs for insert 
   with check (auth.uid() = user_id);
 
+drop policy if exists "Allow users to update their own mood logs" on public.mood_logs;
 create policy "Allow users to update their own mood logs" 
   on public.mood_logs for update 
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "Allow users to delete their own mood logs" on public.mood_logs;
 create policy "Allow users to delete their own mood logs" 
   on public.mood_logs for delete 
   using (auth.uid() = user_id);
